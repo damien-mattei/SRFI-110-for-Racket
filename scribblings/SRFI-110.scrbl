@@ -33,13 +33,6 @@ Source code: @url["https://github.com/damien-mattei/Scheme-PLUS-for-Racket"]
 Package: @url["https://pkgs.racket-lang.org/package/Scheme-PLUS-for-Racket"]
 }
 
-
-If you just want SRFI-105 Curly Infix in portion of your code or in all your code try using those pragmas in your code:
-
-@racket[BEGIN-STRICT-SRFI-105-REGION]
-
-@racket[END-STRICT-SRFI-105-REGION]
-
-You can also set the flag @racket[srfi-strict] to @racket[#t] in the source code of kernel.rkt.
+Note: Sweet expressions has not been tested, should not be working.
 
 @hyperlink["https://srfi.schemers.org/srfi-110/srfi-110.html"]{Documentation of the original SRFI 110}

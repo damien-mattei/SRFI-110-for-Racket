@@ -173,7 +173,7 @@
 
   (provide
    ; exported procedures
-   curly-infix-read-init
+   ;curly-infix-read-init
    mutable-read	; main routine to call
    ; tier read procedures
    curly-infix-read neoteric-read sweet-read
@@ -192,6 +192,11 @@
 
   (cond-expand
    (racket
+    (require Scheme+/nfx
+	     Scheme+/condx
+	     Scheme+/alternating-parameters
+	     Scheme+/operators
+	     Scheme+/infix-with-precedence-to-prefix)
     (require syntax/readerr)
     (require ffi/vector) ; for list->u8vector
     (require rnrs/mutable-pairs-6)
@@ -199,12 +204,122 @@
     (require (only-in racket/base (if if-racket)))
     (define-syntax if
       (syntax-rules ()
-	((_ tst t) (if-racket tst t (values)))
+	((_ tst t) (if-racket tst t (values))) ; return no values in case test is false
 	((_ tst t f) (if-racket tst t f))))
-    (define global-port '())
-    (define source "unknown"))
+    ) ; end racket
    (else ))
+
+
+(define global-port '())
+(define source "unknown")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 	
+;; globals variables that can be modified by coder or by pragma
+	
+(define srfi-strict #f) ; enable strict compatibility with SRFI 105 that will NOT force some $nfx$ apply almost everywhere
+
+;; partially deprecated as the new parenthesis syntax and insertion of $nfx$ create a recursive parsing with infix autodetection
+(define care-of-quote #t) ; keep quoted expression when #t (no $nfx$ will be inserted in *quoted* curly infix expressions),
+;; usefull to use symbolic expressions
+;; (but makes debugging harder because quoted expression to debug will not be the same as evaluated unquoted ones)
+
+;; DEPRECATED : let it to #f
+(define use-only-syntax-transformers #f) ; use only syntax transformers: syntax transformers are used by scheme+
+					; when false the parser will partially do the job of syntax transformers
+					; it will do the job for expression between { } but not for 'define and 'define+
+					; letting it be done by syntax transformers 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+;; library procedures and macro
+(define insert cons)
+
+;; insert and set 
+(define-syntax insert-set!
+  (syntax-rules ()
+    ((_ expr var)
+     (set! var (insert expr var)))))
+
+
+
+;; procedures and global variables to deal with quoted,quasiquoted,unquoted,etc binary curly infix regions
+
+;; Notes on the modified algorithm:
+;; the original curly infix parser of SRFI 105 is written in a style which is functional recursive
+;; instead of using some stack. Modifying this algorithm should have be by adding an extra parameter
+;; defining the region context (quoted/unquoted) but this schema would have cause to pass
+;; an extra parameter in a lot of functions with the risk of an error in coding and a lot of work.
+;; I had intially and preferred to add a more complex stack but with less modifications in
+;; existing code. Then the modifications are only in parts dealing with quote,quasiquote,unquote
+;; unquote-splacing , sexpr,and of course process-curly but not in neoteric expressions
+;; and others intermediate procedures.
+
+;; instantiate an empty stack and provide methods (push,pop...)
+
+;; note: the stack code is so simple that it is better inlined and hard to put in a module
+(define stack '())
+
+(define (push x) (set! stack (cons x stack)))
+
+(define (pop)
+  (when (null? stack)
+    (read-error "SRFI-105-curly-infix : pop : EMPTY STACK ERROR")) 
+  (define x (car stack))
+  (set! stack (cdr stack))
+  x)
+
+
+;; definitions for forcing or releasing the parsing of quoted (pseudoquoted too) expressions
+
+;; #t : quoted region (quote,quasiquote)
+;; #f : unquoted region (unquote,unquote-splicing)
+(define region-quote #f) ; intial value at launching
+
+(define (find*quote) ; quote , quasiquote but NOT unquote
+  (push region-quote) ; store the current mode on top of the stack
+  (set! region-quote #t))
+
+(define (find-unquote*)
+  (push region-quote) ; store the current mode on top of the stack
+  (set! region-quote #f))
+
+(define (end-region) ; called when we find the end of a region
+  (set! region-quote (pop))) ; fallback to the previous mode stored on the stack
+
+
+
+;; definitions for testing equality to quoted regions
+(define (quote-or-quasi? datum)
+  (or (equal? datum 'quote)
+      (equal? datum 'quasiquote)))
+
+;; definitions for testing equality to unquoted regions and setting and storing the region modes
+(define (unquote-or-splicing? datum)
+  (or (equal? datum 'unquote)
+      (equal? datum 'unquote-splicing)))
+
+(define (check*quote datum)
+  (if (quote-or-quasi? datum)
+      (find*quote) ; return unspecified which is true
+      #f))
+
+(define (check-unquote* datum)
+  (if (unquote-or-splicing? datum)
+      (find-unquote*) ; return unspecified which is true
+      #f))
+
+(define (check*quote* datum)
+  (or (check*quote datum)
+      (check-unquote* datum)))
+
+
+;;(define comment #f) ; use for comment removal
+
+
 ; On Guile 2.0, the define-module part needs to occur separately from
 ; the rest of the compatibility checks, unfortunately.  Sigh.
 (cond-expand
@@ -654,7 +769,8 @@
     ; on exit from the given inner procedure.
 
     (cond-expand
-     (racket
+     (racket ; in racket we set source to the source file name and path, we also store the port in global-port,
+      ; count lines should have be activated on port prior that
       (define (make-read f)
        (lambda args
          (let ((real-port (if (null? args)
@@ -719,7 +835,7 @@
       #f))
  (racket
   (define (replace-read-with f)
-    (set! mutable-read f)
+    (set! mutable-read f) ; mutable-read is a copy of read, so it is mutable, read can not be modified in Racket
     ;;#f
     ))
  (else ; not cond expression
@@ -894,12 +1010,33 @@
           (my-read-char port)
           (attach-sourceinfo pos '()))
         ((memv c '(#\) #\] #\}))  (read-error "Bad closing character") c)
+	
         (else
-          (let ((datum (my-read port)))
-            (cond
+         (let* ((datum (my-read port)) ; should read a token
+		(strict-srfi-105-pragma #f)
+		(q-reg (check*quote* datum))) ; *quote* (i mean backquote,quasiquote ...) region and also set a local flag for entering a critical region
+
+	   ;;(when q-reg
+	   ;;(display "datum=") (display datum)(newline)) ; datum would contain quote,quasiquote,unquote,unquote-splicing,etc... push
+
+	   ;; for test only
+	   ;; (when (eq? datum 'newline)
+	   ;;   (read-error "newline test passed"))
+	   
+	   (when (eq? datum 'BEGIN-STRICT-SRFI-105-REGION) ; note: eq? is ok but equal? could be better
+	     (set! strict-srfi-105-pragma #t)
+	     (set! srfi-strict #t))
+
+	   (when (eq? datum 'END-STRICT-SRFI-105-REGION)
+	     (set! strict-srfi-105-pragma #t)
+	     (set! srfi-strict #f))
+	   
+           (cond
+	    ;; here we got chars ... (not symbols)
+	    ;; processing period . is important for functions with variable numbers of parameters: (fct arg1 . restargs)
                ((and (eq? datum period-symbol) (char=? c #\.))
                  (let ((datum2 (my-read port)))
-                   (consume-whitespace port)
+                   (consume-whitespace port) ; reading white space between . restargs ?
                    (cond
                      ((eof-object? datum2)
                       (read-error "Early eof in (... .)")
@@ -911,9 +1048,31 @@
                        (my-read-char port)
                        datum2))))
                (else
-                 (attach-sourceinfo pos
-                   (cons datum
-                     (my-read-delimited-list my-read stop-char port))))))))))
+		;; original code commented:
+                ;; (attach-sourceinfo pos
+                ;;   (cons datum
+                ;;     (my-read-delimited-list my-read stop-char port))))))))))
+		;; here we get the symbolic scheme expression (but it is constructed recursively,only at the end we get the correct full expression)
+	  
+		(let ((expression '()))
+
+		  (if strict-srfi-105-pragma;(or strict-srfi-105-pragma comment) ; TODO comment should now take in account at other place of the parsing
+                      (begin
+			#;(when comment
+                           (set! comment #f)) ; reset the comment flag before
+			(set! expression (my-read-delimited-list my-read stop-char port))) ; drop the datum as it is a pragma directive or a commented expression
+		      (set! expression (cons datum ;; normal case
+					     (my-read-delimited-list my-read stop-char port))))
+		  
+		  (when q-reg
+		    ;;(display "expression=") (display expression) (newline) ; here we possibly have finished a *quote* region ,pop
+		    (end-region)) ; pop !
+
+		  ;; for test only
+		  ;; (when (equal? expression '(newline))
+		  ;;   (read-error "(newline) test passed"))
+		  
+		  expression))))))))
 
 ; -----------------------------------------------------------------------------
 ; Read preservation, replacement, and mode setting
@@ -926,7 +1085,7 @@
   (define (restore-traditional-read) (replace-read-with default-scheme-read))
 
   (cond-expand
-   (racket
+   (racket ; mutable-read is a copy of read, so it is mutable, read can not be modified in Racket
     (define (enable-curly-infix)
       (when (not (or (eq? mutable-read curly-infix-read)
                      (eq? mutable-read neoteric-read)
@@ -1190,7 +1349,8 @@
         s))
 
   (: process-directive (string -> undefined))
-  (define (process-directive dir)
+  (define (process-directive dir) ; TODO could allow to deal with all the directives i use :BEGIN-STRICT-SRFI-105-REGION
+    ; if written starting with #!directive : #!BEGIN-STRICT-SRFI-105-REGION, #!END-STRICT-SRFI-105-REGION,....
     (cond
       ; TODO: These should be specific to the port.
       ((string-ci=? dir "sweet")
@@ -1275,7 +1435,7 @@
   ; should be a hash table but those aren't portable.
 
   (cond-expand
-   (racket
+   (racket ; Racket list are not mutable, i use R6RS ones, not sure this routines are really used
     (define (patch-datum-label-tail number replace position skip)
       (let ((new-skip (mcons position skip)))
 	(cond
@@ -1384,15 +1544,19 @@
                   (if (memv (gobble-chars port '(#\a #\l #\s #\e)) '(0 4))
                       '(normal #f)
                       (read-error "Incomplete #false")))
+		
+		;; should be for parsing binary,octal,hexadecimal,etc numbers
                 ((memv c '(#\i #\e #\b #\o #\d #\x
                            #\I #\E #\B #\O #\D #\X))
                   (let ((num (read-number port (list #\# (char-downcase c)))))
                     (if num
                         `(normal ,num)
                         (read-error "Not a number after number start"))))
+		
                 ((char=? c #\( )  ; Vector.
                   (list 'normal (list->vector
-                    (my-read-delimited-list no-indent-read #\) port))))
+				 (my-read-delimited-list no-indent-read #\) port))))
+		
                 ((char=? c #\u )  ; u8 Vector.
                   (cond
                     ((not (eqv? (my-read-char port) #\8 ))
@@ -1401,8 +1565,10 @@
                       (read-error "#u8 must be followed by left paren"))
                     (else (list 'normal (list->u8vector
 					 (my-read-delimited-list no-indent-read #\) port))))))
+		
                 ((char=? c #\\)
                   (list 'normal (process-char port)))
+		
                 ; Handle #; (item comment).
                 ((char=? c #\;)
                   (if (memv (my-peek-char port)
@@ -1411,15 +1577,58 @@
                     (begin
                       (no-indent-read port)  ; Read the datum to be consumed.
                       scomment-result))) ; Return comment
+
+		;; commented nested scheme expressions as in SRFI-105 code
+		;; (+ 1 #;2 3)
+		;; 4
+		;; (+ 1 #;(+ 1 2) 3)
+		;; 4
+		;; (+ 1 #;{1 + 2} 3)
+		;; 4
+		;; (cons 1 2 #;(foo bar))
+		;; (cons 1 2)
+		;;'(1 . 2)
+		#;((char=? c #\;)
+		 (let ((comy (no-indent-read port))) ; commented expression
+		   (set! comment #t)
+		   (list 'normal comy))) ; must be returned but will be dropped later
+	       
+		
                 ; handle nested comments
-                ((char=? c #\|)
+		; This supports SRFI-30 #|...|# 
+		((char=? c #\|)
                   (nest-comment port)
                   scomment-result) ; Return comment
+		
                 ((char=? c #\!)
                  (process-sharp-bang port))
 
 
 		;; Racket's regular expressions special syntax and other stuff could be added here (see SRFI 105 code)
+		;; read #:blabla
+		((char=? c #\:) (list 'normal
+				      (string->keyword ;; also add #: in front of argument
+				       (list->string
+					(read-until-delim port neoteric-delimiters)))))
+
+		;; Racket's regular expressions special syntax
+		((char=? c #\r) (if (not (equal? (my-read-char port) #\x))
+				    (read-error "process-sharp : awaiting regexp : character x not found")
+				    (let ((str (no-indent-read port)))
+				      (if (not (string? str))
+					  (read-error "process-sharp : awaiting regexp : string not found")
+					  (list 'normal
+						(list 'regexp str))))))
+
+		((char=? c #\p) (if (not (equal? (my-read-char port) #\x))
+				    (read-error "process-sharp : awaiting regexp : character x not found")
+				    (let ((str (no-indent-read port)))
+				      (if (not (string? str))
+					  (read-error "process-sharp : awaiting pregexp : string not found")
+					  (list 'normal
+						(list 'pregexp str))))))
+
+		
 		
                 ((memv c digits) ; Datum label, #num# or #num=...
                   (let* ((my-digits (read-digits port))
@@ -1436,7 +1645,8 @@
                        (list 'normal
                              (patch-datum-label label (no-indent-read port))))
                       (else
-                        (read-error "Datum label #NUM requires = or #")))))
+                       (read-error "Datum label #NUM requires = or #")))))
+		
                 ; R6RS abbreviations #' #` #, #,@
                 ((char=? c #\')
                   '(abbrev syntax))
@@ -1457,7 +1667,11 @@
                   ; languages (Bourne shells, Perl, Python, etc.)
                   (consume-to-eol port)
                   scomment-result) ; Return comment
-                (else #f)))
+                (else #;#f
+		 (read-error (string-append "SRFI-105 REPL :"
+					   "Unsupported # extension"
+					   " unsupported character causing this message is character:"
+					   (string c))))))
 
   (: parse-cl (:reader-proc: char input-port -> (or (list symbol symbol) boolean)))
   (define (parse-cl no-indent-read c port)
@@ -1641,14 +1855,14 @@
                 (my-read-char port)
                 (let ((rv (process-sharp no-indent-read port)))
                   (cond
-                    ((eq? (car rv) 'scomment) (no-indent-read port))
-                    ((eq? (car rv) 'datum-commentw)
-                      (no-indent-read port) ; Consume following datum.
-                      (no-indent-read port))
-                    ((eq? (car rv) 'normal) (cadr rv))
-                    ((eq? (car rv) 'abbrev)
-                      (list (cadr rv) (no-indent-read port)))
-                    (else   (read-error "Unknown # sequence")))))
+                   ((eq? (car rv) 'scomment) (no-indent-read port))
+                   ((eq? (car rv) 'datum-commentw)
+                    (no-indent-read port) ; Consume following datum.
+                    (no-indent-read port))
+                   ((eq? (car rv) 'normal) (cadr rv))
+                   ((eq? (car rv) 'abbrev)
+                    (list (cadr rv) (no-indent-read port)))
+                   (else   (read-error "Unknown # sequence")))))
 	      
               ((char=? c #\.) (process-period port)) ; note: could lead to a number too
 
@@ -1663,26 +1877,41 @@
                   (if as-number
                       as-number
                       (string->symbol (fold-case-maybe port maybe-number)))))
+
+	      ;; here we should 'push' as it is quoted or backquoted (pseudoquote,quasiquote)
+              ((char=? c #\') ; quote
+                (my-read-char port)
+		(find*quote)
+		(let ((mrp (no-indent-read port)))
+		  (end-region) ; pop !
+                  (list (attach-sourceinfo pos 'quote)
+			mrp)))
 	      
-              ((char=? c #\')
+              ((char=? c #\`) ; quasiquote
                 (my-read-char port)
-                (list (attach-sourceinfo pos 'quote)
-                      (no-indent-read port)))
-              ((char=? c #\`)
+		(find*quote)
+		(let ((mrp (no-indent-read port)))
+		  (end-region) ; pop !
+                  (list (attach-sourceinfo pos (translate-cl 'quasiquote))
+			mrp)))
+	      
+	      ;; here we should 'pop' as we have to eval with unquote or unquote-splicing
+              ((char=? c #\,) ; unquote
                 (my-read-char port)
-                (list (attach-sourceinfo pos (translate-cl 'quasiquote))
-                      (no-indent-read port)))
-              ((char=? c #\,)
-                (my-read-char port)
-                  (cond
+		(find-unquote*)
+		(cond
                     ((char=? #\@ (my-peek-char port))
                       (my-read-char port)
-                      (list (attach-sourceinfo pos
-					       (translate-cl 'unquote-splicing))
-			    (no-indent-read port)))
-                   (else
-                    (list (attach-sourceinfo pos (translate-cl 'unquote))
-			  (no-indent-read port)))))
+		      (let ((mrp (no-indent-read port)))
+			(end-region) ; pop !
+			(list (attach-sourceinfo pos
+						 (translate-cl 'unquote-splicing))
+			      mrp)))
+                    (else
+		     (let ((mrp (no-indent-read port)))
+		       (end-region) ; pop !
+		       (list (attach-sourceinfo pos (translate-cl 'unquote))
+			     mrp)))))
 	      
               ((char=? c #\( )
                   (my-read-char port)
@@ -1691,7 +1920,8 @@
                 (my-read-char port)
                 (read-error "Closing parenthesis without opening")
                 (underlying-read no-indent-read port))
-              ((char=? c #\[ )
+              ((char=? c #\[ )   ;;(default-scheme-read port)) ;; this convert [ ... ] in ($bracket-list$ ...) in Kawa at least allowing Kawa special expressions such as: [1 <: 7] , with SRFI 105, to be checked with SRFI 110
+
                   (my-read-char port)
                   (my-read-delimited-list no-indent-read #\] port))
               ((char=? c #\] )
@@ -1702,9 +1932,11 @@
                 (my-read-char port)
                 (read-error "Closing brace without opening")
                 (underlying-read no-indent-read port))
+	      
               ((char=? c #\| )
                 ; Read |...| symbol (like Common Lisp and R7RS draft 9)
-                (get-barred-symbol port))
+               (get-barred-symbol port))
+	      
               (else ; Nothing else.  Must be a symbol or keyword start.
                 (let ((s (fold-case-maybe port
                           (list->string
@@ -1749,7 +1981,7 @@
 
   ; Return alternating parameters in a list (1st, 3rd, 5th, etc.)
   (: alternating-parameters (list --> list))
-  (define (alternating-parameters lyst)
+  #;(define (alternating-parameters lyst)
     (if (or (null? lyst) (null? (cdr lyst)))
         lyst
         (cons (car lyst) (alternating-parameters (cddr lyst)))))
@@ -1760,9 +1992,11 @@
   (define (transform-mixed-infix lyst)
      (cons '$nfx$ lyst))
 
+
+  
   ; Given curly-infix lyst, map it to its final internal format.
   (: process-curly (list --> list))
-  (define (process-curly lyst)
+  #;(define (process-curly lyst)
     (cond
      ((not (pair? lyst)) lyst) ; E.G., map {} to ().
      ((null? (cdr lyst)) ; Map {a} to a.
@@ -1773,9 +2007,275 @@
        (cons (cadr lyst) (alternating-parameters lyst)))
      (else  (transform-mixed-infix lyst))))
 
+  
+  ; Given curly-infix lyst, map it to its final internal format.
+  (define (process-curly lyst)
 
+  ;;(display "SRFI-105 : process-curly lyst=") (display lyst) (newline)
+
+  (if use-only-syntax-transformers
+
+      (cond 
+
+       ;; E.G., map {} to ().
+       
+       ((not (pair? lyst)) lyst) ; E.G., map {} to ().
+
+
+       
+       ;; Map {a} to a.
+       
+       ((null? (cdr lyst)) ; Map {a} to a.
+
+	(if srfi-strict
+	    (car lyst)  ; original version
+	    
+	    ;; {(3.7 + 1)}
+	    ;; ($nfx$ (3.7 + 1))
+	    ;; 4.7
+	    
+	    ;;{3.7}
+	    ;;($nfx$ 3.7)
+	    ;;3.7
+	    (list '$nfx$ (car lyst)))) ; ($nfx$ a)
+
+       
+
+       ;; Map {a b} to (a b).
+       
+       ((and (pair? (cdr lyst))
+	     (null? (cddr lyst))) ; Map {a b} to (a b).
+
+	(if srfi-strict
+	    lyst
+
+	    ;; '{abs (3.7 + 1)}
+	    ;; '($nfx$ abs (3.7 + 1))
+
+	    ;; {abs (3.7 + 1)}
+	    ;; ($nfx$ abs (3.7 + 1))
+	    ;; 4.7
+
+	    ;; (define (h x y) {abs ((cos (x + y)) * (sin (x - y))) } )
+	    ;; (define (h x y) ($nfx$ abs ((cos (x + y)) * (sin (x - y)))))
+	    ;; #<eof>
+	    ;; (h  .2 .3)
+	    ;; (h 0.2 0.3)
+	    ;; 0.08761206554319241
+	    (cons '$nfx$ lyst))) ; ($nfx$ a b)
+
+
+
+       ;; Map {a OP b [OP c...]} to (OP a b [c...])
+       
+       ;; deal quoted and quasi-quoted the old way
+       ;; '{(2 + 3) - (5 - 7) - 2}
+       ;; '(- (2 + 3) (5 - 7) 2)
+       
+       ;; '{(2 + 3) - (5 - 7)}
+       ;; '(- (2 + 3) (5 - 7))
+       ((and (simple-infix-list? lyst)
+	     (or (and care-of-quote
+		      region-quote)
+		 srfi-strict)) ; Map {a OP b [OP c...]} to (OP a b [c...])
+	
+	(cons (cadr lyst)
+	      (alternating-parameters lyst)))
+       
+       ;; comment above force this (which is not what i want):
+       ;; '{(2 + 3) - (5 - 7) - 2}
+       ;; '($nfx$ (2 + 3) - (5 - 7) - 2)
+
+       ;; '{(2 + 3) - (5 - 7)}
+       ;; '($nfx$ (2 + 3) - (5 - 7))
+
+       ;; `{{2 + 3} - ,{2 + 1}}
+       ;; `($nfx$ ($nfx$ 2 + 3) - ,($nfx$ 2 + 1))
+       ;; $nfx$: #'(e1 op1 e2 op ...)=.#<syntax:Dropbox/git/Scheme-PLUS-for-Racket/main/Scheme-PLUS-for-Racket/nfx.rkt:65:69 (2 + 1)>
+       ;; $nfx$: (syntax->list #'(e1 op1 e2 op ...))=(.#<syntax 2> .#<syntax +> .#<syntax 1>)
+       ;; $nfx$ : parsed-args=.#<syntax (+ 2 1)>
+       ;; '($nfx$ ($nfx$ 2 + 3) - 3)
+
+
+       ;; general case
+       
+       (else ; will insert $nfx$ in front of list
+	(transform-mixed-infix lyst))) 
+
+
+      
+      ;; `{{2 + 3} - ,{2 + 1}}
+      ;; `(- (+ 2 3) ,($nfx$ 2 + 1))
+      ;; $nfx$: #'(e1 op1 e2 op ...)=.#<syntax:Dropbox/git/Scheme-PLUS-for-Racket/main/Scheme-PLUS-for-Racket/nfx.rkt:66:69 (2 + 1)>
+      ;; $nfx$: (syntax->list #'(e1 op1 e2 op ...))=(.#<syntax 2> .#<syntax +> .#<syntax 1>)
+      ;; $nfx$ : parsed-args=.#<syntax (+ 2 1)>
+      ;; '(- (+ 2 3) 3)
+
+      ;; {x <- (1 + 2 + 3) - (4 + 5)}
+      ;; ($nfx$ x <- (1 + 2 + 3) - (4 + 5))
+      ;; $nfx$: #'(e1 op1 e2 op ...)=.#<syntax:Dropbox/git/Scheme-PLUS-for-Racket/main/Scheme-PLUS-for-Racket/nfx.rkt:66:69 (x <- (1 + 2 + 3) - (4 + 5))>
+      ;; $nfx$: (syntax->list #'(e1 op1 e2 op ...))=(.#<syntax x> .#<syntax <-> .#<syntax (1 + 2 + 3)> .#<syntax -> .#<syntax (4 + 5)>)
+      ;; $nfx$ : parsed-args=.#<syntax (<- x (- (+ 1 2 3) (+ 4 5)))>
+      ;; #<eof>
+      ;; x
+      ;; x
+      ;; -3
+
+     
+      
+      ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+      ;; else : limited use of  syntax transformers
+      ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+      
+      ;; {3 * 5 + 2}
+      ;; (+ (* 3 5) 2)
+      ;; 17
+      
+      (condx
+
+       ;; E.G., map {} to ().
+       
+       ((not (pair? lyst)) lyst) ; E.G., map {} to ().
+
+
+       ;; Map {a} to a.
+       
+       ((null? (cdr lyst)) ; Map {a} to a.
+
+	(if srfi-strict
+	    (car lyst)  ; original version
+	    
+	    ;; {(3.7 + 1)}
+	    ;; ($nfx$ (3.7 + 1))
+	    ;; 4.7
+	    
+	    ;;{3.7}
+	    ;;($nfx$ 3.7)
+	    ;;3.7
+	    (nfx (car lyst)))) ; ($nfx$ a)
+	    ;;(read-error "SRFI-105-curly-infix : process-curly : DEBUG lyst =" lyst)))
+
+       ;; Map {a b} to (a b).
+       
+       ((and (pair? (cdr lyst))
+	     (null? (cddr lyst))) ; Map {a b} to (a b).
+
+	(if srfi-strict
+	    lyst
+
+	    ;; '{abs (3.7 + 1)}
+	    ;; '($nfx$ abs (3.7 + 1))
+
+	    ;; {abs (3.7 + 1)}
+	    ;; ($nfx$ abs (3.7 + 1))
+	    ;; 4.7
+
+	    ;; (define (h x y) {abs ((cos (x + y)) * (sin (x - y))) } )
+	    ;; (define (h x y) ($nfx$ abs ((cos (x + y)) * (sin (x - y)))))
+	    ;; #<eof>
+	    ;; (h  .2 .3)
+	    ;; (h 0.2 0.3)
+	    ;; 0.08761206554319241
+	    (apply nfx lyst))) ; ($nfx$ a b)
+
+       
+       ;; list of operators
+       (exec
+	(define operands (alternating-parameters lyst))
+	(define mbr+- (or (member '+ operands) ; there could be + - + + , superscripts ,so operators could be wrong
+			  (member '- operands)))
+	(define sil (simple-infix-list? lyst))
+	(define oper (cadr lyst)) ; first operator of list
+	(define infx (not (eq? oper 'if))) ; true infix, not Python 'statement if test else statement2'
+	;;(read-error "SRFI-105-curly-infix : infx =" infx) 
+	); when all operators are the same
+
+       
+       ;; Map {a OP b [OP c...]} to (OP a b [c...])
+       
+       ;; deal quoted and quasi-quoted the old way
+       ;; '{(2 + 3) - (5 - 7) - 2}
+       ;; '(- (2 + 3) (5 - 7) 2)
+       
+       ;; '{(2 + 3) - (5 - 7)}
+       ;; '(- (2 + 3) (5 - 7))
+       ((and infx ; true infix
+	     sil ; simple infix list , when all operators are the same
+	     (or (and care-of-quote
+		      region-quote)
+		 srfi-strict)) ; Map {a OP b [OP c...]} to (OP a b [c...])
+	
+	(cons oper ; first operator of list
+	      operands))  ; Map {a OP b [OP c...]} to (OP a b [c...])
+
+       
+       ;; comment above force this (which is not what i want):
+       ;; '{(2 + 3) - (5 - 7) - 2}
+       ;; '($nfx$ (2 + 3) - (5 - 7) - 2)
+
+       ;; '{(2 + 3) - (5 - 7)}
+       ;; '($nfx$ (2 + 3) - (5 - 7))
+
+       ;; `{{2 + 3} - ,{2 + 1}}
+       ;; `($nfx$ ($nfx$ 2 + 3) - ,($nfx$ 2 + 1))
+       ;; $nfx$: #'(e1 op1 e2 op ...)=.#<syntax:Dropbox/git/Scheme-PLUS-for-Racket/main/Scheme-PLUS-for-Racket/nfx.rkt:65:69 (2 + 1)>
+       ;; $nfx$: (syntax->list #'(e1 op1 e2 op ...))=(.#<syntax 2> .#<syntax +> .#<syntax 1>)
+       ;; $nfx$ : parsed-args=.#<syntax (+ 2 1)>
+       ;; '($nfx$ ($nfx$ 2 + 3) - 3)
+
+       ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+       
+       ;; this allows some infix macros
+       ;; (define-syntax +=
+       ;;     (syntax-rules ()
+       ;;       ({var1 _ var2} {var1 := var1 + var2})))
+
+       ;; (define-syntax += (syntax-rules () ((_ var1 var2) (:= var1 (+ var1 var2))))) ; parsed result
+
+       ;; {x := 3}
+       ;; {x += 7}
+       ;; x
+       ;; 10
+
+       ;; (define-syntax plus
+       ;;     (syntax-rules ()
+       ;;       ({var1 _ ...} {var1 + ...})))
+
+       ;; (define-syntax plus (syntax-rules () ((_ var1 ...) (+ var1 ...)))) ; parsed result
+
+       ;; {2 plus 3}
+       ;; (plus 2 3) ; parsed result
+       ;; 5
+
+       ;; {2 plus 3 plus 4 plus 5 plus 6}
+       ;; (plus 2 3 4 5 6)  ; parsed result
+       ;; 20
+       ((and infx ; true infix
+	     sil ; simple infix list , when all operators are the same
+	     (not mbr+-)) ; could be there + - + + , superscripts ,so operators could be wrong
+					; {2 - + - 3 - 4} will not be parsed here but later !
+
+	(define deep-terms (map (lambda (x) ; deep terms should be parsed by Scheme+
+				  (!*prec-generic-infix-parser-rec-prepare x
+									   (lambda (op a b)
+									     (list op a b)))) ; creator
+				operands))
+	(cons oper
+	      deep-terms))
+
+       
+       ;; general case
+       
+       (else ; apply nfx to the list
+	(apply nfx lyst))))) ; execute (nfx a b c ...)
+  
+
+
+  
   (: curly-infix-read-real (:reader-proc: input-port -> *))
-  (define (curly-infix-read-real no-indent-read port)
+  (define (curly-infix-read-real no-indent-read port) ; TODO should we set! global-port here too ?
     (let* ((pos (get-sourceinfo port))
            (c   (my-peek-char port)))
       (cond
@@ -1817,6 +2317,7 @@
              (c   (my-peek-char port)))
         (cond
           ((eof-object? c) prefix)
+	  ;;   f = prefix
           ((char=? c #\( ) ; Implement f(x)
             (my-read-char port)
             (neoteric-process-tail port (attach-sourceinfo pos (cons prefix
@@ -2969,23 +3470,23 @@
   (define mutable-read curly-infix-read) ; this mutable reader will be the current-one changing from curly infix to sweet and so on...
   
   ; added 2025
-  ; this is now the main entry routine equivalent of curly-infix-read in SRFI-105
-  (cond-expand
-   (racket
-    (define (curly-infix-read-init . port-src)
-      (when (and (not (null? port-src))
-                 (not (null? (cdr port-src)))
-                 (path? (cadr port-src)))
-        (set! source (some-system-path->string (cadr port-src)))) ; source filename
-      (define curly-infix-read (make-read curly-infix-read-nocomment)) ; re-make the reader
-      (if (null? port-src)
-          (begin
-             (set! global-port (current-input-port)) ; fall back
-             (curly-infix-read))
-          (begin
-             (set! global-port (car port-src))
-             (curly-infix-read (car port-src))))))
-   (else ))
+  ; NOT USED
+  ;; (cond-expand
+  ;;  (racket
+  ;;   (define (curly-infix-read-init . port-src)
+  ;;     (when (and (not (null? port-src))
+  ;;                (not (null? (cdr port-src)))
+  ;;                (path? (cadr port-src)))
+  ;;       (set! source (some-system-path->string (cadr port-src)))) ; source filename
+  ;;     (define curly-infix-read (make-read curly-infix-read-nocomment)) ; re-make the reader
+  ;;     (if (null? port-src)
+  ;;         (begin
+  ;;            (set! global-port (current-input-port)) ; fall back
+  ;;            (curly-infix-read))
+  ;;         (begin
+  ;;            (set! global-port (car port-src))
+  ;;            (curly-infix-read (car port-src))))))
+  ;;  (else ))
 
   ) ; end readable-kernel-module-contents
 

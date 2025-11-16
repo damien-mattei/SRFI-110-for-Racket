@@ -4,7 +4,17 @@
 
 Scheme SRFI 110 Sweet expressions , Curly Infix and neoteric expressions for Racket Scheme 
 
-Note: Sweet expression should not work (due to incompatibilities from guile to racket,not even tested), not compatible with Scheme+
+Note: Sweet expression should not work (due to incompatibilities from guile to racket,not even tested)
+
+
+<br>
+
+**Changes of version 1.1:**
+
+Compatible with Scheme+.
+
+
+<br>
 
 
 ```scheme
