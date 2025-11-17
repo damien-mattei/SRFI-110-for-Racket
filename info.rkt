@@ -16,5 +16,6 @@
     "srfi-lib"
     "r6rs-lib"
     "Scheme-PLUS-for-Racket"
-    "r7rs"))
+    "r7rs"
+    "compatibility-lib"))
 
