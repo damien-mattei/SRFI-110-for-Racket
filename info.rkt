@@ -15,5 +15,6 @@
   '("base"
     "srfi-lib"
     "r6rs-lib"
-    "Scheme-PLUS-for-Racket"))
+    "Scheme-PLUS-for-Racket"
+    "r7rs"))
 
