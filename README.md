@@ -6,6 +6,12 @@ Scheme SRFI 110 Sweet expressions , Curly Infix and neoteric expressions for Rac
 
 Note: Sweet expression should not work (due to incompatibilities from guile to racket,not even tested)
 
+<br>
+
+**Changes of version 1.2:**
+
+Compatible with Scheme+.
+Added Makefile and curly-infix2prefix4racket.rkt (should works but not tested).
 
 <br>
 
