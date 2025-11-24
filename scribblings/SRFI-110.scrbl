@@ -33,6 +33,6 @@ Source code: @url["https://github.com/damien-mattei/Scheme-PLUS-for-Racket"]
 Package: @url["https://pkgs.racket-lang.org/package/Scheme-PLUS-for-Racket"]
 }
 
-Note: Sweet expressions has not been tested, should not be working.
+Note: Sweet expressions have not been tested, should not be working.
 
 @hyperlink["https://srfi.schemers.org/srfi-110/srfi-110.html"]{Documentation of the original SRFI 110}
