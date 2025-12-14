@@ -8,6 +8,14 @@ Note: Sweet expression should not work (due to incompatibilities from guile to r
 
 <br>
 
+**Changes of version 1.3:**
+
+Correct the bug that was in the original SRFI 105 and SRFI 110 implementations that prevent some comment by #; to be commented when in inner expressions.
+
+<br>
+
+<br>
+
 **Changes of version 1.2:**
 
 Compatible with Scheme+.

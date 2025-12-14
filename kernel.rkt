@@ -317,7 +317,7 @@
       (check-unquote* datum)))
 
 
-;;(define comment #f) ; use for comment removal
+(define comment #f) ; use for comment removal
 
 
 ; On Guile 2.0, the define-module part needs to occur separately from
@@ -1056,10 +1056,10 @@
 	  
 		(let ((expression '()))
 
-		  (if strict-srfi-105-pragma;(or strict-srfi-105-pragma comment) ; TODO comment should now take in account at other place of the parsing
+		  (if #;strict-srfi-105-pragma (or strict-srfi-105-pragma comment) ; comment should now take in account at other place of the parsing, yes but buggy !!! (as the original version of SRFI 105 too) so i re-activate this version (SRFI 105 corrected)
                       (begin
-			#;(when comment
-                           (set! comment #f)) ; reset the comment flag before
+			(when comment
+                           (set! comment #f)) ; reset the comment flag before - SRFI 105 corrected
 			(set! expression (my-read-delimited-list my-read stop-char port))) ; drop the datum as it is a pragma directive or a commented expression
 		      (set! expression (cons datum ;; normal case
 					     (my-read-delimited-list my-read stop-char port))))
@@ -1568,15 +1568,16 @@
 		
                 ((char=? c #\\)
                   (list 'normal (process-char port)))
-		
+
+		;; Warning : buggy if #;(list something) ??? better use the enhanced version of SRFI 105 which correct this bug
                 ; Handle #; (item comment).
-                ((char=? c #\;)
-                  (if (memv (my-peek-char port)
-                            `(#\space #\tab ,linefeed ,carriage-return))
-                    '(datum-commentw ())
-                    (begin
-                      (no-indent-read port)  ; Read the datum to be consumed.
-                      scomment-result))) ; Return comment
+                ;; ((char=? c #\;)
+                ;;   (if (memv (my-peek-char port)
+                ;;             `(#\space #\tab ,linefeed ,carriage-return))
+                ;;     '(datum-commentw ())
+                ;;     (begin
+                ;;       (no-indent-read port)  ; Read the datum to be consumed.
+                ;;       scomment-result))) ; Return comment
 
 		;; commented nested scheme expressions as in SRFI-105 code
 		;; (+ 1 #;2 3)
@@ -1588,7 +1589,7 @@
 		;; (cons 1 2 #;(foo bar))
 		;; (cons 1 2)
 		;;'(1 . 2)
-		#;((char=? c #\;)
+		((char=? c #\;)
 		 (let ((comy (no-indent-read port))) ; commented expression
 		   (set! comment #t)
 		   (list 'normal comy))) ; must be returned but will be dropped later
