@@ -5,6 +5,11 @@
 Scheme SRFI 110 Sweet expressions , Curly Infix and neoteric expressions for Racket Scheme 
 
 Note: Sweet expression should not work (due to incompatibilities from guile to racket,not even tested)
+<br>
+
+**Changes of version 1.4:**
+
+Fixes a bug with nested comments when code was not in a module,set the comment flag to false at each call of read-curly-infix.So it should works also in files with multiple expressions, not only a single big module expression. (note that ,see code, neoteric-read-comment perheaps needs to be checked,see comment in code at this point).But this should works.
 
 <br>
 

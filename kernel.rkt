@@ -530,7 +530,9 @@
 
     (define (make-read f)
       (lambda args
-        (let ((port (if (null? args) (current-input-port) (car args))))
+        (let ((port (if (null? args)
+			(current-input-port)
+			(car args))))
           (f (list port)))))
 
     (define (invoke-read read fake-port)
@@ -2298,6 +2300,7 @@
 
   ; Read using curly-infix-read-real
   (define (curly-infix-read-nocomment port)
+    (set! comment #f) ; for expr not in module (in module the module is the only expression ,so no need to reset the comment flag)
     (curly-infix-read-real curly-infix-read-nocomment port))
 
   
@@ -2378,6 +2381,8 @@
 
   (: neoteric-read-nocomment (input-port -> *))
   (define (neoteric-read-nocomment port)
+    ; should we put this line here too (already in curly-infix-read):
+    ;(set! comment #f) ; for expr not in module (in module the module is the only expression ,so no need to reset the comment flag)
     (neoteric-read-real port))
 
 ; -----------------------------------------------------------------------------
