@@ -51,12 +51,12 @@ $(MODULE_DIRECTORY) :
 # create Scheme files (*.scm) by parsing Scheme+ files (*+.scm)
 $(MODULE_DIRECTORY)/%+.scm: %+.scm
 	@echo PARSING $< :
-	$(PARSER) $< > $@
+	$(SCHEME_EXEC) $(PARSER) $< > $@
 
 # create Scheme files (*.rkt) by parsing Scheme+ files (*+.rkt)
 $(MODULE_DIRECTORY)/%+.rkt: %+.rkt
 	@echo PARSING $< :
-	$(PARSER) $< > $@
+	$(SCHEME_EXEC) $(PARSER) $< > $@
 
 
 clean:
