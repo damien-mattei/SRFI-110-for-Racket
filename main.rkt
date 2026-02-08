@@ -28,7 +28,7 @@
 
 
 
-(module SRFI-110 racket
+(module SRFI-110 racket/base
 	
 
 ;;(require syntax/strip-context) ;; is this useful?
@@ -42,7 +42,8 @@
 
 (require SRFI-110/kernel
 	 setup/getinfo ; for parsing info.rkt
-	 )
+	 racket/pretty
+         SRFI-105/annot)
 
 (define info-getter (get-info '("SRFI-110")))
 (define version (cond ((procedure? info-getter) (info-getter 'version))
@@ -156,26 +157,54 @@
 	  (set! result (list "GREETINGS SCHEMER. IT SEEMS YOU ARE ONLY USING SRFI-110 CURLY INFIX,NEOTERIC AND SWEET EXPRESSIONS. TO GET ALL THE FEATURES OF THE SYSTEM I SUGGEST YOU TO (require Scheme+) OR SIMPLY TO Run REPL-Scheme-PLUS.rkt OR EVEN JUST RUN THE FILE YOU PREVIOUSLY LOADED.")))
 	  ;(error "ERROR: Empty program."))
 
-	(for/list ([expr result])
+	#;(for/list ([expr result])
 		  (pretty-print expr
 				(current-output-port)
 				1))
 
 	;;(newline (current-output-port))
 	
-	(if (not (null? (cdr result)))
-	    ;; put them in a module
-	    `(module aschemeplusprogram racket ,@result)
-	    ;; only one
-	    (let ((fst (car result)))
-	      ;; searching for a module
-	      (if (and (list? fst)
-		       (not (null? fst))
-		       (equal? 'module (car fst)))
-		  fst ; is the result module
-		  `(module aschemeplusprogram racket ,fst)))))))
-		       
+	;; we always return a module, so a single sexpr
+	;; put it in a variable and parse it for type annotation
+	(define result-modul
+		 (cond ((null? result) `(module aschemeplusprogram racket)) ; '() : void code
+		       ((not (null? (cdr result))) ; (code1 code2 ...)
+			;; put them in a module
+			`(module aschemeplusprogram racket ,@result))
+		       (else
+			;; only one (code1)
+			(let ((fst (car result))) 
+			  ;; searching for a module ((module ...))
+			  (if (and (list? fst)
+				   (not (null? fst))
+				   (equal? 'module (car fst)))
+			      fst ; is the result module : (module ...)
+			      `(module aschemeplusprogram racket ,fst))))))
 	
+	(pretty-print result-modul
+		      (current-output-port)
+		      1)
+
+	(define annot-flag #t) ; TODO : the same in SRFI-110
+	
+	(if annot-flag
+	    (let ((parsed-annoted-module (annot result-modul)))
+	      (newline)
+	      (display "Annotated code:") (newline)
+	      (pretty-print parsed-annoted-module
+			    (current-output-port)
+			    1)
+	      (newline)
+	      
+	      parsed-annoted-module)
+	    result-modul)
+	    
+	; we must return the final code , do not forget it !!!!
+	
+	)))
+      
+	
+
 
 
 

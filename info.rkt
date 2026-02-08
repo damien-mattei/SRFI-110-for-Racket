@@ -5,7 +5,7 @@
 (define compile-omit-paths '("src" "deprecated" "compiled"))
 (define test-omit-paths '("src" "compiled"))
 (define pkg-desc "SRFI-110 Curly Infix,Neoteric and Sweet expressions for Racket and R6RS (autodetection)")
-(define version "1.4")
+(define version "1.5")
 (define pkg-authors '(mattei))
 (define scribblings '(("scribblings/SRFI-110.scrbl" () (parsing-library))))
 (define build-deps '("scribble-lib" "racket-doc" "scribble-code-examples" "scribble-doc"))
@@ -16,6 +16,7 @@
     "srfi-lib"
     "r6rs-lib"
     "Scheme-PLUS-for-Racket"
+    "SRFI-105-for-Racket"
     "r7rs"
     "compatibility-lib"))
 

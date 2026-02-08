@@ -169,7 +169,7 @@
 
 
 
-(module kernel racket
+(module kernel racket/base
 
   (provide
    ; exported procedures
@@ -188,7 +188,8 @@
    neoteric-write neoteric-write-cyclic neoteric-write-shared
    )
 
-  (require (only-in r7rs cond-expand))
+  (require (only-in r7rs cond-expand)
+	   racket/path)
 
   (cond-expand
    (racket
