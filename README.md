@@ -23,6 +23,17 @@ Future: the next release is more complex and will take more time to be achieved,
 
 <br>
 
+**Changes of version 1.7:**
+
+
+Bootstrapping start to be used. Scheme+ is now written in Scheme+. See: https://en.wikipedia.org/wiki/Bootstrapping_(compilers)
+For now the Bootstrapping is only used in SRFI-105 as Scheme+ code do not have changed and as SRFI-110 just import annot+.rkt from SRFI-105.
+
+Type annotation is in progress.(but no new features till)
+
+<br>
+
+
 **Changes of version 1.4:**
 
 Fixes a bug with nested comments when code was not in a module,set the comment flag to false at each call of read-curly-infix.So it should works also in files with multiple expressions, not only a single big module expression. (note that ,see code, neoteric-read-comment perheaps needs to be checked,see comment in code at this point).But this should works.

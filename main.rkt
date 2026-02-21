@@ -43,7 +43,9 @@
 (require SRFI-110/kernel
 	 setup/getinfo ; for parsing info.rkt
 	 racket/pretty
-         SRFI-105/annot)
+         SRFI-105/annot+
+         srfi/69 ; basic hash tables , brings compatibility on hash tables between scheme implementations
+         )
 
 (define info-getter (get-info '("SRFI-110")))
 (define version (cond ((procedure? info-getter) (info-getter 'version))
@@ -56,7 +58,15 @@
 
 
 (define flag-r6rs #f)
-      
+
+
+(define annot-flag #t)
+
+(define ovrld-ht '())
+
+(when annot-flag
+  (set! ovrld-ht (make-hash-table)))
+  
 
 (define (skip-comments-and-empty-lines in)
   
@@ -185,19 +195,18 @@
 		      (current-output-port)
 		      1)
 
-	(define annot-flag #t) 
+	
 	
 	(if annot-flag
-	    (let ((parsed-annoted-module (annot result-modul '())))
+	    (let ((parsed-annotated-module (annot result-modul (list ovrld-ht))))
 	      (newline)
 	      (display "Annotated code (Beta: in development, only a few percent of the job done,just provided because it could already provide speedup of code.)") (newline)
 	      (newline)
-	      (pretty-print parsed-annoted-module
+	      (pretty-print parsed-annotated-module
 			    (current-output-port)
 			    1)
-	      (newline)
-	      
-	      parsed-annoted-module)
+	      (newline)	      
+	      parsed-annotated-module)
 	    result-modul)
 	    
 	; we must return the final code , do not forget it !!!!
@@ -221,11 +230,22 @@
 		  (current-output-port)
 		  1))
   
-  (if (eof-object? result)
+ (if (eof-object? result)
       ;;(begin (display "eof") (newline) result)
       result
-      (datum->syntax #f result))) ;; current-eval wait for a syntax object to pass to eval-syntax for evaluation
-      
+      (if annot-flag
+	  (let ((parsed-annotated-result (annot result (list ovrld-ht))))
+	    (newline)
+            (display "Parsed annotations. :")
+            (newline)
+	    (pretty-print parsed-annotated-result
+			  (current-output-port)
+			  1)
+	    (newline)	    ; we must return the final code , do not forget it !!!!
+            (datum->syntax #f parsed-annotated-result))
+          (datum->syntax #f result)))) ;; current-eval wait for a syntax object to pass to eval-syntax for evaluation
+
+    
 
  
 
