@@ -3,7 +3,7 @@
 (define pkg-name "SRFI-110-for-Racket")
 (define collection "SRFI-110")
 (define compile-omit-paths '("src" "deprecated" "compiled"))
-(define test-omit-paths '("src" "compiled"))
+(define test-omit-paths '("src" "compiled" "bootstrapping"))
 (define pkg-desc "SRFI-110 Curly Infix,Neoteric and Sweet expressions for Racket and R6RS (autodetection)")
 (define version "1.7")
 (define pkg-authors '(mattei))
