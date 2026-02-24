@@ -186,6 +186,10 @@
    curly-write-simple neoteric-write-simple
    curly-write curly-write-cyclic curly-write-shared
    neoteric-write neoteric-write-cyclic neoteric-write-shared
+
+   care-of-quote
+   srfi-strict
+   use-only-syntax-transformers
    )
 
   (require (only-in r7rs cond-expand)

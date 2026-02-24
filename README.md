@@ -23,6 +23,13 @@ Future: the next release is more complex and will take more time to be achieved,
 
 <br>
 
+**Changes of version 1.8:**
+
+Match with SRFI 105 update.
+Display NO OP module but not annotation if empty.
+
+<br>
+
 **Changes of version 1.7:**
 
 

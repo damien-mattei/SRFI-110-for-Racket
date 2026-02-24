@@ -51,14 +51,18 @@
 (define version (cond ((procedure? info-getter) (info-getter 'version))
 		      (else info-getter)))
 
-(display (string-append "SRFI 110 Curly Infix,Neoteric and Sweet expressions v" version " for Scheme+")) (newline)
-;; (display "care of quote flag set to:") (display care-of-quote) (newline)
-;; (display "strict SRFI-105 flag set to:") (display srfi-strict) (newline)
-;; (display "use only syntax transformers flag set to:") (display use-only-syntax-transformers) (newline)
+(define verbose 1)
+
+(when verbose
+  (display (string-append "SRFI 110 Curly Infix,Neoteric and Sweet expressions v" version " for Scheme+")) (newline))
+
+(when (> 1 verbose)
+  (display "care of quote flag set to:") (display care-of-quote) (newline)
+  (display "strict SRFI-105 flag set to:") (display srfi-strict) (newline)
+  (display "use only syntax transformers flag set to:") (display use-only-syntax-transformers) (newline))
 
 
 (define flag-r6rs #f)
-
 
 (define annot-flag #t)
 
@@ -126,20 +130,22 @@
 
   ;; search for R6RS
   (when (regexp-try-match #px"^#!r6rs[[:blank:]]*\n" in)
-	(set! flag-r6rs #t)
-	(display "Detected R6RS code: #!r6rs") (newline) (newline))
+    (set! flag-r6rs #t)
+    (when verbose
+      (display "Detected R6RS code: #!r6rs") (newline) (newline)))
 
   (define lc '())
   (define cc '())
   (define pc '())
   (set!-values (lc cc pc) (port-next-location in))
-  (display "SRFI-110 Curly Infix reader : number of skipped lines (comments, spaces, directives,...) at header's beginning : ")
-  (display lc)
-  (newline)
-  (newline)
+  (when (> 1 verbose)
+    (display "SRFI-110 Curly Infix reader : number of skipped lines (comments, spaces, directives,...) at header's beginning : ")
+    (display lc)
+    (newline)
+    (newline)
   
-  (display "Parsed curly infix code result = ") (newline) ;(newline)
-  
+    (display "Parsed curly infix code result = ") (newline) ;(newline)
+  )
 
   (if flag-r6rs
       
@@ -163,8 +169,10 @@
 
       ;; r5rs
       (let ((result (process-input-code-rec-tail-recursive '())))
+        
 	(when (null? result)
-	  (set! result (list "GREETINGS SCHEMER. IT SEEMS YOU ARE ONLY USING SRFI-110 CURLY INFIX,NEOTERIC AND SWEET EXPRESSIONS. TO GET ALL THE FEATURES OF THE SYSTEM I SUGGEST YOU TO (require Scheme+) OR SIMPLY TO Run REPL-Scheme-PLUS.rkt OR EVEN JUST RUN THE FILE YOU PREVIOUSLY LOADED.")))
+          (when (> 1 verbose)
+            (set! result (list "GREETINGS SCHEMER. IT SEEMS YOU ARE ONLY USING SRFI-110 CURLY INFIX,NEOTERIC AND SWEET EXPRESSIONS. TO GET ALL THE FEATURES OF THE SYSTEM I SUGGEST YOU TO (require Scheme+) OR SIMPLY TO Run REPL-Scheme-PLUS.rkt OR EVEN JUST RUN THE FILE YOU PREVIOUSLY LOADED."))))
 	  ;(error "ERROR: Empty program."))
 
 	#;(for/list ([expr result])
@@ -177,7 +185,7 @@
 	;; we always return a module, so a single sexpr
 	;; put it in a variable and parse it for type annotation
 	(define result-modul
-		 (cond ((null? result) `(module aschemeplusprogram racket)) ; '() : void code
+		 (cond ((null? result) '(module no-op racket)) ; no code but then MUST be an empty module!
 		       ((not (null? (cdr result))) ; (code1 code2 ...)
 			;; put them in a module
 			`(module aschemeplusprogram racket ,@result))
@@ -190,17 +198,20 @@
 				   (equal? 'module (car fst)))
 			      fst ; is the result module : (module ...)
 			      `(module aschemeplusprogram racket ,fst))))))
-	
-	(pretty-print result-modul
-		      (current-output-port)
-		      1)
+
+        (unless (null? result)
+          (pretty-print result-modul
+                        (current-output-port)
+                        1))
 
 	
 	
-	(if annot-flag
-	    (let ((parsed-annotated-module (annot result-modul (list ovrld-ht))))
+	(if (and annot-flag
+                 (not (null? result))) ; no need to parse annotations of a no code module
+	    (let ((parsed-annotated-module (annot result-modul ovrld-ht)))
 	      (newline)
 	      (display "Annotated code (Beta: in development, only a few percent of the job done,just provided because it could already provide speedup of code.)") (newline)
+              (display "ovrld-ht (alist): ") (display (hash-table->alist ovrld-ht)) (newline)
 	      (newline)
 	      (pretty-print parsed-annotated-module
 			    (current-output-port)
@@ -222,19 +233,22 @@
 (define (literal-read-syntax-for-repl src in)
 
   (define result (mutable-read in))
-  ;; usefull only in CLI
-  (newline) 
-  (write-char (integer->char 13)) ; put a Carriage Return
+
+  
   (unless (eof-object? result)
+    (display "REPL Curly Infix:")
+    ;; usefull only in CLI
+    (newline) 
+    (write-char (integer->char 13)) ; put a Carriage Return
     (pretty-print result
 		  (current-output-port)
 		  1))
   
- (if (eof-object? result)
+  (if (eof-object? result)
       ;;(begin (display "eof") (newline) result)
       result
       (if annot-flag
-	  (let ((parsed-annotated-result (annot result (list ovrld-ht))))
+	  (let ((parsed-annotated-result (annot result ovrld-ht)))
 	    (newline)
             (display "Parsed annotations. :")
             (newline)
