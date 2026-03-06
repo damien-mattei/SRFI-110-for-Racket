@@ -45,7 +45,7 @@
 	 racket/pretty
          SRFI-105/annot+
          srfi/69 ; basic hash tables , brings compatibility on hash tables between scheme implementations
-         )
+         Scheme+/operators-list)
 
 (define info-getter (get-info '("SRFI-110")))
 (define version (cond ((procedure? info-getter) (info-getter 'version))
@@ -116,7 +116,10 @@
     (define result (mutable-read in src))  ;; read an expression
     (cond ((eof-object? result)
 	   (reverse acc))
-	  (else (process-input-code-rec-tail-recursive (cons result acc)))))
+	  (else
+	   (if (verify-if-declare-postfix-operator-then-store-it-for-proc result)
+	       (process-input-code-rec-tail-recursive acc)
+	       (process-input-code-rec-tail-recursive (cons result acc))))))
 
 
   (display "SRFI-110 Curly Infix parser for Racket Scheme and R6RS by Damien MATTEI") (newline)
@@ -200,6 +203,8 @@
 			      `(module aschemeplusprogram racket ,fst))))))
 
         (unless (null? result)
+	  (display "Parser : main.rkt : Postfix operators list :") (display (get-postfix-lst)) (newline)
+          (newline)
           (pretty-print result-modul
                         (current-output-port)
                         1))
@@ -224,7 +229,6 @@
 	
 	)))
       
-	
 
 
 
@@ -232,13 +236,15 @@
 ;; the current read interaction handler, which is procedure that takes an arbitrary value and an input port 
 (define (literal-read-syntax-for-repl src in)
 
+  ;(display "Parser : main.rkt : Postfix operators list :") (display (get-postfix-lst)) (newline)
   (define result (mutable-read in))
-
   
   (unless (eof-object? result)
     (display "REPL Curly Infix:")
     ;; usefull only in CLI
-    (newline) 
+    (newline)
+    (verify-if-declare-postfix-operator-then-store-it result)
+    
     (write-char (integer->char 13)) ; put a Carriage Return
     (pretty-print result
 		  (current-output-port)

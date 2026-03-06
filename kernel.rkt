@@ -201,7 +201,8 @@
 	     Scheme+/condx
 	     Scheme+/alternating-parameters
 	     Scheme+/operators
-	     Scheme+/infix-with-precedence-to-prefix)
+	     Scheme+/infix-with-precedence-to-prefix
+	     Scheme+/operators-list)
     (require syntax/readerr)
     (require ffi/vector) ; for list->u8vector
     (require rnrs/mutable-pairs-6)
@@ -323,6 +324,9 @@
 
 
 (define comment #f) ; use for comment removal
+
+(define postfix-flag #f) ; when we find a postfix operator annotation
+
 
 
 ; On Guile 2.0, the define-module part needs to occur separately from
@@ -1060,13 +1064,27 @@
                 ;;   (cons datum
                 ;;     (my-read-delimited-list my-read stop-char port))))))))))
 		;; here we get the symbolic scheme expression (but it is constructed recursively,only at the end we get the correct full expression)
-	  
+
+
+					; also test for comment flag !!!
+		(when (and (list? datum)
+			   (not (null? datum))
+			   (eq? (car datum) 'declare-postfix-operator)
+			   (not comment))
+		  ;(set! postfix-flag #t)
+		  (insert-in-postfix-lst (cadr datum))
+					;(display "kernel.rkt : (get-postfix-lst) :") (display (get-postfix-lst)) (newline)
+					;(error "SRFI-110 : postfix declaration found:" datum)
+		  )
+		
 		(let ((expression '()))
 
-		  (if #;strict-srfi-105-pragma (or strict-srfi-105-pragma comment) ; comment should now take in account at other place of the parsing, yes but buggy !!! (as the original version of SRFI 105 too) so i re-activate this version (SRFI 105 corrected)
+		  (if #;strict-srfi-105-pragma (or strict-srfi-105-pragma comment #;postfix-flag) ; comment should now take in account at other place of the parsing, yes but buggy !!! (as the original version of SRFI 105 too) so i re-activate this version (SRFI 105 corrected)
                       (begin
 			(when comment
-                           (set! comment #f)) ; reset the comment flag before - SRFI 105 corrected
+                          (set! comment #f)) ; reset the comment flag before - SRFI 105 corrected
+			(when postfix-flag
+			  (set! postfix-flag #f))
 			(set! expression (my-read-delimited-list my-read stop-char port))) ; drop the datum as it is a pragma directive or a commented expression
 		      (set! expression (cons datum ;; normal case
 					     (my-read-delimited-list my-read stop-char port))))
@@ -2306,6 +2324,7 @@
   ; Read using curly-infix-read-real
   (define (curly-infix-read-nocomment port)
     (set! comment #f) ; for expr not in module (in module the module is the only expression ,so no need to reset the comment flag)
+    ;; TODO postfix-flag ?
     (curly-infix-read-real curly-infix-read-nocomment port))
 
   
