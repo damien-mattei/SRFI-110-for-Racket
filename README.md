@@ -7,19 +7,25 @@ Scheme SRFI 110 Sweet expressions , Curly Infix and neoteric expressions for Rac
 Note: Sweet expression should not work (due to incompatibilities from guile to racket,not even tested)
 <br>
 
-#lang reader SRFI-105
+Use:
 
+#lang reader SRFI-110
 
+<!--
 ## 💙 Support My Work
 
 If my projects help you, you can support me with a donation:
 
 [![Donate via PayPal](https://img.shields.io/badge/Donate-PayPal-003087?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.me/DamienMATTEI27)
+-->
 
 <br>
 
 Future: the next release is more complex and will take more time to be achieved,i'm working on a type annotation system to improve speed to top.
 
+**Changes of version 1.9:**
+
+Support for postfix operators and postfix notation.
 
 <br>
 
