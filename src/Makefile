@@ -8,17 +8,15 @@
 
 SHELL := /bin/bash
 
-# path to parser directory
-PARSER_DIRECTORY=SRFI-110-for-Racket
+# path to SRFI-110 directory
+SRFI-110=../SRFI-110-for-Racket
 
 # for MacOS:
-#SCHEME_EXEC=/Applications/Racket\ v8.12/bin/racket
 SCHEME_EXEC=racket
 
 
 # Scheme+ for parser
-#PARSER:=$(SCHEME_EXEC) $(SCHEME_PLUS)/src/curly-infix2prefix4racket.rkt
-PARSER:=$(PARSER_DIRECTORY)/src/curly-infix2prefix4racket.rkt
+PARSER:=$(SRFI-110)/src/curly-infix2prefix4racket.rkt
 
 
 # sub directory where parsed module files will be generated

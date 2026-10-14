@@ -190,6 +190,14 @@
    care-of-quote
    srfi-strict
    use-only-syntax-transformers
+   get-annot-flag
+   set-annot-flag!
+   get-annot-on-read
+   set-annot-on-read!
+   process-annotation-pragma
+   process-strict-pragma
+   reset-srfi-strict!
+   read-with-directives
    )
 
   (require (only-in r7rs cond-expand)
@@ -202,7 +210,11 @@
 	     Scheme+/alternating-parameters
 	     Scheme+/operators
 	     Scheme+/infix-with-precedence-to-prefix
-	     Scheme+/operators-list)
+	     Scheme+/operators-list
+	     (only-in Scheme+/parser-declarations verify-if-declaration-for-parser-then-store-it)
+	     (only-in Scheme+/care-of-quotes infix-top-level-only) ; a quoted { } with several operators
+	     (only-in Scheme+/superscript superscript-only?) ; the superscripts (exponents) are not parsed by the simple infix shortcut
+	     Scheme+/type) ; brings ANNOTATION-ON and ANNOTATION-OFF
     (require syntax/readerr)
     (require ffi/vector) ; for list->u8vector
     (require rnrs/mutable-pairs-6)
@@ -226,7 +238,13 @@
 	
 (define srfi-strict #f) ; enable strict compatibility with SRFI 105 that will NOT force some $nfx$ apply almost everywhere
 
+;; the pragma BEGIN-STRICT-SRFI-105-REGION or END-STRICT-SRFI-105-REGION read alone in { } : {BEGIN-STRICT-SRFI-105-REGION}
+;; the { } gives the pragma back to the enclosing list , which drops it (without this the empty { } left () in the code)
+(define strict-pragma-in-curly #f)
+
 ;; partially deprecated as the new parenthesis syntax and insertion of $nfx$ create a recursive parsing with infix autodetection
+;; no more used : replaced by the pragmas CARE-OF-QUOTES-ON / CARE-OF-QUOTES-OFF (Scheme+/care-of-quotes) ,
+;; still defined and exported because the backups of main.rkt display it
 (define care-of-quote #t) ; keep quoted expression when #t (no $nfx$ will be inserted in *quoted* curly infix expressions),
 ;; usefull to use symbolic expressions
 ;; (but makes debugging harder because quoted expression to debug will not be the same as evaluated unquoted ones)
@@ -235,7 +253,65 @@
 (define use-only-syntax-transformers #f) ; use only syntax transformers: syntax transformers are used by scheme+
 					; when false the parser will partially do the job of syntax transformers
 					; it will do the job for expression between { } but not for 'define and 'define+
-					; letting it be done by syntax transformers 
+					; letting it be done by syntax transformers
+
+;; off by default, set by the pragmas ANNOTATION-ON / ANNOTATION-OFF (see process-annotation-pragma)
+;; and reset to #f by main.rkt at the beginning of each file read
+(define annot-flag #f) ; activate or deactivate parsing of annotations
+
+(define (get-annot-flag)
+  annot-flag)
+
+(define (set-annot-flag! flag)
+  (set! annot-flag flag))
+
+;; #t as soon as a pragma ANNOTATION-ON has been read in the file : the annotation pass must then run on the file
+;; (the pragmas act by region, see annot+.rkt of SRFI 105), reset to #f by main.rkt at the beginning of each file read
+(define annot-on-read #f)
+
+(define (get-annot-on-read)
+  annot-on-read)
+
+(define (set-annot-on-read! flag)
+  (set! annot-on-read flag))
+
+;; the pragmas ANNOTATION-ON / ANNOTATION-OFF : datum is a datum read in the file, either an element
+;; of a list (my-read-delimited-list, for example inside a module form) or a datum at the top level
+;; of the file (main.rkt).
+;; The pragmas act by region : they are no more swallowed, they stay in the code as markers for the annotation pass
+;; (annot+.rkt of SRFI 105) that removes them. A pragma acts on the elements that follow it in the same list, until
+;; the next pragma or the end of the list. annot-flag is the last pragma read (used by the REPL), annot-on-read tells
+;; if the annotation pass must run on the file.
+;; old comment : The annotation pass is applied when the whole file has been read, so the
+;; last pragma read is the one that counts. The pragmas are swallowed : they do not remain in the code.
+(define (process-annotation-pragma datum) ; return #t when datum is one of the pragmas
+  (cond ((eq? datum ANNOTATION-ON)
+	 (set! annot-flag #t)
+	 (set! annot-on-read #t)
+	 #t)
+	((eq? datum ANNOTATION-OFF)
+	 (set! annot-flag #f)
+	 #t)
+	(else #f)))
+
+;; the value of srfi-strict written in this source code : the state at the beginning of each file
+(define srfi-strict-at-start srfi-strict)
+
+;; called at the beginning of each file : a strict region not closed by END-STRICT-SRFI-105-REGION does not go on
+;; in the next file read (for example a module required by the previous one)
+(define (reset-srfi-strict!)
+  (set! srfi-strict srfi-strict-at-start))
+
+;; a pragma BEGIN-STRICT-SRFI-105-REGION / END-STRICT-SRFI-105-REGION read at the REPL , return #t when datum is one
+;; of the pragmas (inside a list they are processed by the reader , at the top level of a file by sweet-read)
+(define (process-strict-pragma datum)
+  (cond ((eq? datum 'BEGIN-STRICT-SRFI-105-REGION)
+	 (set! srfi-strict #t)
+	 #t)
+	((eq? datum 'END-STRICT-SRFI-105-REGION)
+	 (set! srfi-strict #f)
+	 #t)
+	(else #f)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -300,13 +376,13 @@
 
 ;; definitions for testing equality to quoted regions
 (define (quote-or-quasi? datum)
-  (or (equal? datum 'quote)
-      (equal? datum 'quasiquote)))
+  (or (eq? datum 'quote)
+      (eq? datum 'quasiquote)))
 
 ;; definitions for testing equality to unquoted regions and setting and storing the region modes
 (define (unquote-or-splicing? datum)
-  (or (equal? datum 'unquote)
-      (equal? datum 'unquote-splicing)))
+  (or (eq? datum 'unquote)
+      (eq? datum 'unquote-splicing)))
 
 (define (check*quote datum)
   (if (quote-or-quasi? datum)
@@ -324,6 +400,10 @@
 
 
 (define comment #f) ; use for comment removal
+
+;; #t while the elements of a list ( ) [ ] { } are read (see my-read-delimited-list) , #f at the level of the lines of the
+;; sweet-expressions : the datum comments #; and the block comments #| |# are then treated as in the original SRFI 110
+(define in-list #f)
 
 (define postfix-flag #f) ; when we find a postfix operator annotation
 
@@ -1023,8 +1103,14 @@
         ((memv c '(#\) #\] #\}))  (read-error "Bad closing character") c)
 	
         (else
-         (let* ((datum (my-read port)) ; should read a token
+         (let* (#;(datum (my-read port)) ; should read a token
+		(datum (let ((saved in-list)) ; should read a token , inside a list
+			 (set! in-list #t)
+			 (let ((d (my-read port)))
+			   (set! in-list saved)
+			   d)))
 		(strict-srfi-105-pragma #f)
+		(annotation-pragma #f) ; ANNOTATION-ON / ANNOTATION-OFF found : drop the datum
 		(q-reg (check*quote* datum))) ; *quote* (i mean backquote,quasiquote ...) region and also set a local flag for entering a critical region
 
 	   ;;(when q-reg
@@ -1036,12 +1122,19 @@
 	   
 	   (when (eq? datum 'BEGIN-STRICT-SRFI-105-REGION) ; note: eq? is ok but equal? could be better
 	     (set! strict-srfi-105-pragma #t)
-	     (set! srfi-strict #t))
+	     (set! srfi-strict #t)
+	     (when (eqv? stop-char #\}) ; {BEGIN-STRICT-SRFI-105-REGION}
+	       (set! strict-pragma-in-curly datum)))
 
 	   (when (eq? datum 'END-STRICT-SRFI-105-REGION)
 	     (set! strict-srfi-105-pragma #t)
-	     (set! srfi-strict #f))
-	   
+	     (set! srfi-strict #f)
+	     (when (eqv? stop-char #\}) ; {END-STRICT-SRFI-105-REGION}
+	       (set! strict-pragma-in-curly datum)))
+
+	   #;(set! annotation-pragma (process-annotation-pragma datum)) ; pragmas ANNOTATION-ON / ANNOTATION-OFF , swallowed like the strict pragmas
+	   (process-annotation-pragma datum) ; pragmas ANNOTATION-ON / ANNOTATION-OFF : kept in the list, as markers of the regions for the annotation pass (annot+.rkt of SRFI 105)
+
            (cond
 	    ;; here we got chars ... (not symbols)
 	    ;; processing period . is important for functions with variable numbers of parameters: (fct arg1 . restargs)
@@ -1067,7 +1160,10 @@
 
 
 					; also test for comment flag !!!
-		(when (and (list? datum)
+		; postfix operators , procedures and macros defined or typed , data typed : what the infix parser must know
+		(unless comment
+		  (verify-if-declaration-for-parser-then-store-it datum))
+		#;(when (and (list? datum)
 			   (not (null? datum))
 			   (eq? (car datum) 'declare-postfix-operator)
 			   (not comment))
@@ -1079,7 +1175,7 @@
 		
 		(let ((expression '()))
 
-		  (if #;strict-srfi-105-pragma (or strict-srfi-105-pragma comment #;postfix-flag) ; comment should now take in account at other place of the parsing, yes but buggy !!! (as the original version of SRFI 105 too) so i re-activate this version (SRFI 105 corrected)
+		  (if #;strict-srfi-105-pragma (or strict-srfi-105-pragma annotation-pragma comment #;postfix-flag) ; comment should now take in account at other place of the parsing, yes but buggy !!! (as the original version of SRFI 105 too) so i re-activate this version (SRFI 105 corrected)
                       (begin
 			(when comment
                           (set! comment #f)) ; reset the comment flag before - SRFI 105 corrected
@@ -1484,14 +1580,31 @@
                   (patch-datum-label-tail number replace x new-skip)))))
          (else (no-values)))))
 
-    (define (patch-datum-label number starting-position)
+    #;(define (patch-datum-label number starting-position)
       (if (is-matching-label-tag? number starting-position)
           (read-error "Illegal reference as the labelled object itself"))
       (patch-datum-label-tail number
 			      (list->mlist starting-position)
 			      (list->mlist starting-position)
 			      '())
-      (mlist->list starting-position)))
+      (mlist->list starting-position)) ; one ) less than the old code : the end of the racket branch is now after the new definition
+
+    ; the lists of Racket can not be modified : the datum is rebuilt , the references #n# replaced by a placeholder
+    ; set to the rebuilt datum , and make-reader-graph makes the (possibly cyclic) graph (without this : #1=(a b) gave
+    ; mcar: contract violation)
+    (define (patch-datum-label number starting-position)
+      (if (is-matching-label-tag? number starting-position)
+          (read-error "Illegal reference as the labelled object itself"))
+      (let ((ph (make-placeholder #f)))
+	(define (rebuild x)
+	  (cond ((is-matching-label-tag? number x) ph)
+		((and (pair? x) (eq? (car x) unmatched-datum-label-tag)) x) ; the reference to an other label
+		((pair? x) (cons (rebuild (car x)) (rebuild (cdr x))))
+		((vector? x) (list->vector (map rebuild (vector->list x))))
+		(else x)))
+	(let ((datum (rebuild starting-position)))
+	  (placeholder-set! ph datum)
+	  (make-reader-graph datum)))))
 
    (else
     (define (patch-datum-label-tail number replace position skip)
@@ -1558,6 +1671,14 @@
             (parse-default no-indent-read c port)
             (read-error "Invalid #-prefixed string"))))))
 
+
+  ; (string->value "#hash((a . 1) (b . 2))")
+  ; '#hash((a . 1) (b . 2))
+  ; courtesy of ChatGPT:
+  (define (string->value s)
+    (read (open-input-string s)))
+
+  
   (: parse-default (:reader-proc: char input-port -> *))
   (define (parse-default no-indent-read c port)
               (cond ; Nothing special - use generic rules
@@ -1581,6 +1702,38 @@
                 ((char=? c #\( )  ; Vector.
                   (list 'normal (list->vector
 				 (my-read-delimited-list no-indent-read #\) port))))
+
+                ; hash tables as srfi 105 for racket
+		;; hash table : #hash(("a" . 1) ("b" . 20)) support written for racket scheme
+                ;; Racket's regular expressions special syntax
+                ; and other hash table types :hasheq,...
+                ((char=? c #\h) (if (not (and (char=? (read-char port) #\a)
+                                              (char=? (read-char port) #\s)
+                                              (char=? (read-char port) #\h)))
+                                    (read-error "process-sharp : awaiting hash : token not found")
+                                    (cond ((char=? (peek-char port) #\() ; look at the char without getting it from port
+                                           (read-char port) ; really get the char
+                                           ; recreate '#hash(list ...) ,example : '#hash((a . 1) (b . 2))
+                                           (string->value (string-append "#hash"
+                                                                         (format "~a" (my-read-delimited-list no-indent-read #\) port))))) ; write the list in a string
+                                          ((and (char=? (read-char port) #\e) ; really get the char
+                                                (char=? (read-char port) #\q)) ; here we got #hasheq
+                                           (let ((cht (read-char port))) ; should be v or (
+                                             (cond ((char=? cht #\() ; here we got #hasheq(
+                                                    ; recreate '#hasheq(list ...) ,example : '#hasheq((a . 1) (b . 2))
+                                                    (string->value (string-append "#hasheq"
+                                                                                  (format "~a" (my-read-delimited-list no-indent-read #\) port))))) ; write the list in a string
+                                                   ((char=? cht #\v) ; here we got #hasheqv
+                                                    (if (char=? (read-char port) #\()
+                                                        ; recreate '#hasheqv(list ...) ,example : '#hasheqv((a . 1) (b . 2))
+                                                        (string->value (string-append "#hasheqv"
+                                                                                      (format "~a" (my-read-delimited-list no-indent-read #\) port)))) ; write the list in a string
+                                                        (read-error "process-sharp : awaiting hasheqv( : token not found")))
+                                                   (else
+                                                    (read-error "process-sharp : awaiting hasheq( or hasheqv( : token not found")))))
+                                          (else
+                                           (read-error "process-sharp : awaiting hasheq : partial token not found")))))
+                
 		
                 ((char=? c #\u )  ; u8 Vector.
                   (cond
@@ -1614,18 +1767,65 @@
 		;; (cons 1 2 #;(foo bar))
 		;; (cons 1 2)
 		;;'(1 . 2)
-		((char=? c #\;)
+		#;((char=? c #\;)
 		 (let ((comy (no-indent-read port))) ; commented expression
 		   (set! comment #t)
 		   (list 'normal comy))) ; must be returned but will be dropped later
+		; inside a list ( ) : the commented datum is returned and dropped by my-read-delimited-list (comment flag) ,
+		; at the level of the lines of the sweet-expressions : the original SRFI 110 , #; followed by a white space
+		; comments the next line (or the indented block) , #;datum the next datum
+		((char=? c #\;)
+		 (if in-list
+		     (let ((comy (no-indent-read port))) ; commented expression
+		       (set! comment #t)
+		       (list 'normal comy)) ; must be returned but will be dropped later
+		     (if (memv (my-peek-char port)
+			       `(#\space #\tab ,linefeed ,carriage-return))
+			 '(datum-commentw ())
+			 (begin
+			   (no-indent-read port)  ; Read the datum to be consumed.
+			   scomment-result)))) ; Return comment
 	       
 		
                 ; handle nested comments
-		; This supports SRFI-30 #|...|# 
+		; This supports SRFI-30 #|...|#
+		; #| ... |# is pure "atmosphere" (like a ; comment or
+		; white space), it is not a datum comment (that is #; ,
+		; handled above). We used to unconditionally return
+		; scomment-result here and let underlying-read blindly
+		; call (no-indent-read port) again to fetch "the real
+		; next datum". That breaks when the block comment is the
+		; last thing before the enclosing list's closing
+		; delimiter: no-indent-read then tries to read a whole
+		; new datum, peeks the closing #\) #\] or #\} , and
+		; errors with "Closing parenthesis/bracket/brace without
+		; opening" even though that delimiter is perfectly
+		; legitimate one level up (same bug as was found and
+		; fixed in SRFI-105-curly-infix.rkt).
+		; Fix: after the comment, peek (without consuming) past
+		; any remaining white space / ; comments. If what follows
+		; is a closing delimiter, there is no next datum to read
+		; here: mark this as a dropped datum (like #;), so the
+		; caller (my-read-delimited-list) safely loops and
+		; notices the stop-char itself instead of us trying (and
+		; failing) to read past it. EOF is left untouched: the
+		; existing recursion into underlying-read already handles
+		; it cleanly (its own (eof-object? c) c branch).
+		((and (char=? c #\|)
+		      (not in-list)) ; at the level of the lines of the sweet-expressions : the end of line is kept
+		 (nest-comment port)
+		 scomment-result)
 		((char=? c #\|)
                   (nest-comment port)
-                  scomment-result) ; Return comment
-		
+                  (consume-whitespace port)
+                  (let ((c2 (my-peek-char port)))
+                    (cond
+                      ((eof-object? c2) scomment-result)
+                      ((memv c2 '(#\) #\] #\}))
+                        (set! comment #t)
+                        (list 'normal (void))) ; dropped, like #;
+                      (else scomment-result))))
+
                 ((char=? c #\!)
                  (process-sharp-bang port))
 
@@ -1638,7 +1838,7 @@
 					(read-until-delim port neoteric-delimiters)))))
 
 		;; Racket's regular expressions special syntax
-		((char=? c #\r) (if (not (equal? (my-read-char port) #\x))
+		((char=? c #\r) (if (not (char=? (my-read-char port) #\x))
 				    (read-error "process-sharp : awaiting regexp : character x not found")
 				    (let ((str (no-indent-read port)))
 				      (if (not (string? str))
@@ -1646,7 +1846,7 @@
 					  (list 'normal
 						(list 'regexp str))))))
 
-		((char=? c #\p) (if (not (equal? (my-read-char port) #\x))
+		((char=? c #\p) (if (not (char=? (my-read-char port) #\x))
 				    (read-error "process-sharp : awaiting regexp : character x not found")
 				    (let ((str (no-indent-read port)))
 				      (if (not (string? str))
@@ -2163,12 +2363,15 @@
        
        ((not (pair? lyst)) lyst) ; E.G., map {} to ().
 
+       ;; {a . z} : an improper list , as in SRFI 105 (without this : cddr contract violation)
+       ((not (list? lyst)) (transform-mixed-infix lyst)) ; ($nfx$ a . z)
+
 
        ;; Map {a} to a.
        
        ((null? (cdr lyst)) ; Map {a} to a.
 
-	(if srfi-strict
+	(if #;srfi-strict (or srfi-strict region-quote) ; in a quote {a} is a , as in SRFI 105 : the quotes are respected (Scheme+/care-of-quotes)
 	    (car lyst)  ; original version
 	    
 	    ;; {(3.7 + 1)}
@@ -2186,7 +2389,7 @@
        ((and (pair? (cdr lyst))
 	     (null? (cddr lyst))) ; Map {a b} to (a b).
 
-	(if srfi-strict
+	(if #;srfi-strict (or srfi-strict region-quote) ; in a quote {a b} is (a b) , as in SRFI 105
 	    lyst
 
 	    ;; '{abs (3.7 + 1)}
@@ -2208,10 +2411,17 @@
        ;; list of operators
        (exec
 	(define operands (alternating-parameters lyst))
-	(define mbr+- (or (member '+ operands) ; there could be + - + + , superscripts ,so operators could be wrong
+	#;(define mbr+- (or (member '+ operands) ; there could be + - + + , superscripts ,so operators could be wrong
 			  (member '- operands)))
-	(define sil (simple-infix-list? lyst))
 	(define oper (cadr lyst)) ; first operator of list
+	(define mbr+- (and (or (eq? oper '+) (eq? oper '-)) ; the +/- chained-sign ambiguity only makes sense when the repeating operator itself is + or - ,otherwise a bare + or - operand (e.g. {x := +}) is a legitimate value, not a disguised sign
+			   (or (member '+ operands) ; there could be + - + + , superscripts ,so operators could be wrong
+			       (member '- operands))))
+					; {x := +} -> #f
+					; {+ - 2} -> #t
+					; {5 - 2} -> #f
+	(define sil (simple-infix-list? lyst))
+	;;(define oper (cadr lyst)) ; first operator of list (now defined before mbr+-)
 	(define infx (not (eq? oper 'if))) ; true infix, not Python 'statement if test else statement2'
 	;;(read-error "SRFI-105-curly-infix : infx =" infx) 
 	); when all operators are the same
@@ -2225,11 +2435,16 @@
        
        ;; '{(2 + 3) - (5 - 7)}
        ;; '(- (2 + 3) (5 - 7))
-       ((and infx ; true infix
-	     sil ; simple infix list , when all operators are the same
-	     (or (and care-of-quote
-		      region-quote)
-		 srfi-strict)) ; Map {a OP b [OP c...]} to (OP a b [c...])
+       ; old condition :
+       ; ((and infx ; true infix
+       ;       sil ; simple infix list , when all operators are the same
+       ;       (or (and care-of-quote
+       ;                region-quote)
+       ;           srfi-strict)) ; Map {a OP b [OP c...]} to (OP a b [c...])
+       ((and sil ; simple infix list , when all operators are the same
+	     (or srfi-strict ; SRFI 105 : (OP a b [c...]) , even with if
+		 (and infx ; true infix , not the Python if of Scheme+
+		      region-quote))) ; in a quote the operands are data , their ( ) are not converted (as in SRFI 105)
 	
 	(cons oper ; first operator of list
 	      operands))  ; Map {a OP b [OP c...]} to (OP a b [c...])
@@ -2280,7 +2495,9 @@
        ;; 20
        ((and infx ; true infix
 	     sil ; simple infix list , when all operators are the same
-	     (not mbr+-)) ; could be there + - + + , superscripts ,so operators could be wrong
+	     (not mbr+-) ; could be there + - + + , superscripts ,so operators could be wrong
+	     (not (ormap superscript-only? lyst)) ; a superscript (exponent) needs the general parser (superscript-only? : not * and · , that are also normal operators : {x := *} is (:= x *)) : {2 ⁴ ²} is (** 2 4 2) , not (⁴ 2 ²) , {- 2 ³} is (- (** 2 3))
+	     (not (right-associative? oper))) ; {2 expt 3 expt 2} is not (expt 2 3 2) , expt has 2 arguments : the right associative operators are parsed by the precedence engine
 					; {2 - + - 3 - 4} will not be parsed here but later !
 
 	(define deep-terms (map (lambda (x) ; deep terms should be parsed by Scheme+
@@ -2295,7 +2512,10 @@
        ;; general case
        
        (else ; apply nfx to the list
-	(apply nfx lyst))))) ; execute (nfx a b c ...)
+	#;(apply nfx lyst)
+	(cond (srfi-strict (transform-mixed-infix lyst)) ; SRFI 105 : ($nfx$ a b c ...)
+	      (region-quote (infix-top-level-only lyst)) ; in a quote only the top level is infix , the ( ) are data (Scheme+/care-of-quotes)
+	      (else (apply nfx lyst))))))) ; execute (nfx a b c ...)
   
 
 
@@ -2315,9 +2535,19 @@
         ((eqv? c #\{)
           (my-read-char port)
           ; read in as infix
-          (attach-sourceinfo pos
+          #;(attach-sourceinfo pos
             (process-curly
-              (my-read-delimited-list neoteric-read-real #\} port))))
+              (my-read-delimited-list neoteric-read-real #\} port)))
+	  (let ((lyst (my-read-delimited-list neoteric-read-real #\} port)))
+	    (if (and (null? lyst)
+		     strict-pragma-in-curly) ; {BEGIN-STRICT-SRFI-105-REGION} : the pragma is given back to the enclosing list , which drops it
+		(let ((pragma strict-pragma-in-curly))
+		  (set! strict-pragma-in-curly #f)
+		  pragma)
+		(begin
+		  (set! strict-pragma-in-curly #f)
+		  (attach-sourceinfo pos
+		    (process-curly lyst))))))
         (else
           (underlying-read no-indent-read port)))))
 
@@ -2389,9 +2619,19 @@
                (my-read-delimited-list neoteric-read-nocomment #\] port)))
            ((char=? c #\{ )
              (my-read-char port)
-             (attach-sourceinfo pos
+             #;(attach-sourceinfo pos
                (process-curly
-                 (my-read-delimited-list neoteric-read-nocomment #\} port))))
+                 (my-read-delimited-list neoteric-read-nocomment #\} port)))
+	     (let ((lyst (my-read-delimited-list neoteric-read-nocomment #\} port)))
+	       (if (and (null? lyst)
+			strict-pragma-in-curly) ; {BEGIN-STRICT-SRFI-105-REGION} : the pragma is given back to the enclosing list , which drops it
+		   (let ((pragma strict-pragma-in-curly))
+		     (set! strict-pragma-in-curly #f)
+		     pragma)
+		   (begin
+		     (set! strict-pragma-in-curly #f)
+		     (attach-sourceinfo pos
+		       (process-curly lyst))))))
            ((my-char-whitespace? c)
              (my-read-char port)
              (neoteric-read-real port))
@@ -2842,9 +3082,25 @@
   ; (new-indent computed-value).
   ; We name this "read-body", not "body", to avoid an error in rscheme.
   (: read-body (input-port string -> :reader-token:))
+  ; an element of an indented body , treated as an element of a list ( ) in my-read-delimited-list : the pragmas
+  ; ANNOTATION-ON / ANNOTATION-OFF (kept as markers) , the pragmas of the strict SRFI 105 mode (removed) , the
+  ; declarations for the infix parser of Scheme+ ; returns the datum , or empty-value to remove it
+  (define (process-indented-datum datum)
+    (cond ((eq? datum 'BEGIN-STRICT-SRFI-105-REGION)
+	   (set! srfi-strict #t)
+	   empty-value)
+	  ((eq? datum 'END-STRICT-SRFI-105-REGION)
+	   (set! srfi-strict #f)
+	   empty-value)
+	  (else
+	   (process-annotation-pragma datum)
+	   (verify-if-declaration-for-parser-then-store-it datum)
+	   datum)))
+
   (define (read-body port starting-indent)
-    (let-splitter (i-full-results i-new-indent i-value)
+    (let-splitter (i-full-results i-new-indent i-value-read)
                   (it-expr port starting-indent)
+     (let ((i-value (process-indented-datum i-value-read))) ; the element is processed before the next ones are read
       (if (string=? starting-indent i-new-indent)
           (if (eq? i-value period-symbol)
               (let-splitter (f-full-results f-new-indent f-value)
@@ -2857,7 +3113,7 @@
                 (let-splitter (nxt-full-results nxt-new-indent nxt-value)
                               (read-body port i-new-indent)
                   (list nxt-new-indent (cons i-value nxt-value)))))
-          (list i-new-indent (list1e i-value))))) ; dedent - end list.
+          (list i-new-indent (list1e i-value)))))) ; dedent - end list.
 
 
   ; Read a sweet-expression that doesn't have a special prefix.
@@ -3045,6 +3301,8 @@
   (define (t-expr-catch port)
 
     (init-sweet)
+    (set! comment #f) ; as in curly-infix-read-nocomment
+    (set! in-list #f)
 
     (guard
       (exception
@@ -3495,9 +3753,56 @@
 
   (define curly-infix-read (make-read curly-infix-read-nocomment))
   (define neoteric-read (make-read neoteric-read-nocomment))
-  (define sweet-read (make-read t-expr-catch))
+  ; the pragmas of the strict SRFI 105 mode written alone at the level of the file (outside a module form) are removed
+  (define (t-expr-catch-pragmas port)
+    (let ((datum (t-expr-catch port)))
+      (cond ((eq? datum 'BEGIN-STRICT-SRFI-105-REGION)
+	     (set! srfi-strict #t)
+	     (t-expr-catch-pragmas port))
+	    ((eq? datum 'END-STRICT-SRFI-105-REGION)
+	     (set! srfi-strict #f)
+	     (t-expr-catch-pragmas port))
+	    (else datum))))
+
+  #;(define sweet-read (make-read t-expr-catch))
+  (define sweet-read (make-read t-expr-catch-pragmas))
 
   (define mutable-read curly-infix-read) ; this mutable reader will be the current-one changing from curly infix to sweet and so on...
+
+  ;; the first word of a line : the name of a parsing directive , "curly-infix" in "curly-infix ; a comment"
+  (define (directive-word line)
+    (let loop ((l (string->list line)))
+      (if (or (null? l)
+	      (char-whitespace? (car l)))
+	  '()
+	  (cons (car l) (loop (cdr l))))))
+
+  ;; read the next datum of a file with the current reader of the port (mutable-read) , after having processed the
+  ;; parsing directives of SRFI 110 written alone at the beginning of a line (#!sweet , #!curly-infix , #!no-sweet , ...) ;
+  ;; a directive acts from the next datum ("A #!curly-infix directive SHOULD cause the current port to switch to SRFI-105
+  ;; semantics") : the readers process a directive as a comment and go on reading in the same mode , so the directive is
+  ;; processed here , before the reader is called ; the empty lines and the lines of comment before it are skipped
+  (define (read-with-directives port . src)
+    (let loop ()
+      (let ((c (peek-char port)))
+	(cond ((eof-object? c) c)
+	      ;; an empty line or a line with only a comment , possibly after spaces (example : the end of the line
+	      ;; #reader SRFI-110 ; a comment)
+	      ((regexp-try-match #px"^[ \t]*(;[^\r\n]*)?(\r\n|\n|\r)" port)
+	       (loop))
+	      ((let ((s (peek-string 3 0 port))) ; #!directive
+		 (and (string? s)
+		      (= (string-length s) 3)
+		      (char=? (string-ref s 0) #\#)
+		      (char=? (string-ref s 1) #\!)
+		      (char-alphabetic? (string-ref s 2))))
+	       (read-string 2 port) ; #!
+	       (process-directive (list->string (directive-word (read-line port))))
+	       (loop))
+	      ((eq? mutable-read default-scheme-read) ; #!no-sweet : the read of Racket takes only the port
+	       (mutable-read port))
+	      (else
+	       (apply mutable-read port src))))))
   
   ; added 2025
   ; NOT USED
