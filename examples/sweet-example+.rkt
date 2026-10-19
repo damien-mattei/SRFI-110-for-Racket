@@ -21,6 +21,7 @@ module sweet-example racket
   ;
   ; ------------------------------------------------------------------ the prime numbers : sieve of Eratosthenes
   define (primes-below n)
+    type ℕ n i j              ; the indexes : vector-ref with no test
     {sieve := (make-vector n #t)}
     {primes := '()}
     for ({i := 2} {i < n} {i := i + 1})
@@ -49,12 +50,14 @@ module sweet-example racket
   ;
   ; ------------------------------------------------------------------ product of two matrices (vectors of lines)
   define (matrix-product A B)
+    type #(#(ℝ)) A B C        ; vectors of vectors of flonums
+    type ℕ n m p i j k        ; the indexes : vector-ref with no test
     {n := (vector-length A)}
     {m := (vector-length B)}
     {p := (vector-length B[0])}
     {C := (make-vector n)}
     for ({i := 0} {i < n} {i := i + 1})
-      {C[i] := (make-vector p 0)}
+      {C[i] := (make-vector p 0.0)}
       for ({j := 0} {j < p} {j := j + 1})
         for ({k := 0} {k < m} {k := k + 1})
           {C[i][j] := C[i][j] + A[i][k] * B[k][j]}
@@ -113,7 +116,7 @@ module sweet-example racket
   display "fib(25) = "
   display fib(25)
   newline()
-  {M := #(#(1 2) #(3 4))}
+  {M := #(#(1.0 2.0) #(3.0 4.0))}
   display "M * M = "
   display $ matrix-product M M
   newline()
