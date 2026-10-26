@@ -240,9 +240,37 @@
         (display ":print-type : the annotation is not active (ANNOTATION-ON)")
         (newline)))
     (datum->syntax #f '(void)))
+  (define (ensure-annotation-tables!)
+    (when (null? annot-ht-lst)
+      (:= ovrld-ht (make-hash-table))
+      (:= ovrld-ht-n-arity (make-hash-table))
+      (:= ovrld-ht-proc (make-hash-table))
+      (init-annot-data ovrld-ht ovrld-ht-n-arity ovrld-ht-proc annot-ht-lst)))
+  (define (call-with-repl-output in thunk)
+    (if (and (string-port? in) (terminal-port? (current-output-port)))
+      (let ((out (current-output-port)) (displays (open-output-string)))
+        (dynamic-wind
+         void
+         (lambda () (parameterize ((current-output-port displays)) (thunk)))
+         (lambda ()
+           (write-string
+            (regexp-replace*
+             "\n"
+             (string-append
+              "\n"
+              (regexp-replace (regexp "\n+$") (get-output-string displays) ""))
+             "\r\n")
+            out)
+           (flush-output out))))
+      (thunk)))
   (define (literal-read-syntax-for-repl src in)
+    (call-with-repl-output in (lambda () (read-syntax-for-repl src in))))
+  (define (read-syntax-for-repl src in)
     (define result (mutable-read in))
     (when (process-strict-pragma result) (set! result '(values)))
+    (when (process-annotation-pragma result)
+      (when (get-annot-flag) (ensure-annotation-tables!))
+      (set! result '(values)))
     (unless (eof-object? result)
       (set! result (process-care-of-quotes-repl result)))
     (unless (eof-object? result)
@@ -252,7 +280,6 @@
         (display "Parser : main.rkt : Postfix operators list :")
         (display (get-postfix-lst))
         (newline))
-      (write-char (integer->char 13))
       (pretty-print result (current-output-port) 1))
     (if (eof-object? result)
       result

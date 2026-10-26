@@ -361,14 +361,57 @@
 	(newline)))
   (datum->syntax #f '(void))) ; nothing to evaluate
 
+; the tables of the annotation , created only if no file read with ANNOTATION-ON has created them (annot-ht-lst is the
+; '() of declare) : a pragma ANNOTATION-ON typed in a REPL started without such a file ; the tables of a file already
+; read (REPL-Scheme-PLUS.rkt , the definitions of DrRacket) and the types typed at the REPL are kept
+(define (ensure-annotation-tables!)
+  (when (null? annot-ht-lst)
+    {ovrld-ht := (make-hash-table)} ; this hash table will be used for overloading operators
+    {ovrld-ht-n-arity := (make-hash-table)} ; this hash table will be used for overloading operators
+    {ovrld-ht-proc := (make-hash-table)} ; this hash table will be used for overloading procedures
+    (init-annot-data ovrld-ht ovrld-ht-n-arity ovrld-ht-proc annot-ht-lst)))
+
+
+; the expeditor (the line editor of the REPL of Racket CS in a terminal) calls the reader on the line typed , given in
+; a string port , while the terminal is still in raw mode : a newline goes down without going back to the column 0 and
+; the displays of the reader were written as a staircase. In this case the displays are written to a string and then
+; to the terminal with \r\n (a first \r\n ends the line typed , the newlines at the end are removed : the expeditor
+; then ends the line itself) ; otherwise (readline , a pipe , a file , the REPL of DrRacket) unchanged.
+(define (call-with-repl-output in thunk)
+  (if (and (string-port? in)
+           (terminal-port? (current-output-port)))
+      (let ((out (current-output-port))
+            (displays (open-output-string)))
+        (dynamic-wind
+         void
+         (lambda () (parameterize ((current-output-port displays))
+                      (thunk)))
+         (lambda () ; also when the reading or the annotation raises an error
+           (write-string (regexp-replace* "\n"
+                                          (string-append "\n" (regexp-replace #rx"\n+$" (get-output-string displays) ""))
+                                          "\r\n")
+                         out)
+           (flush-output out))))
+      (thunk)))
 
 (define (literal-read-syntax-for-repl src in)
+  (call-with-repl-output in (lambda () (read-syntax-for-repl src in))))
+
+(define (read-syntax-for-repl src in)
 
   ;(display "Parser : main.rkt : Postfix operators list :") (display (get-postfix-lst)) (newline)
   (define result (mutable-read in))
 
   ; a pragma BEGIN-STRICT-SRFI-105-REGION / END-STRICT-SRFI-105-REGION alone : it changes the mode , there is nothing to evaluate
   (when (process-strict-pragma result)
+    (set! result '(values)))
+
+  ; a pragma ANNOTATION-ON / ANNOTATION-OFF alone : it changes the mode for the rest of the session (the expressions typed
+  ; between ANNOTATION-ON and ANNOTATION-OFF are a region) , there is nothing to evaluate ; ANNOTATION-ON creates the
+  ; tables of the annotation if no file read has created them
+  (when (process-annotation-pragma result)
+    (when (get-annot-flag)
+      (ensure-annotation-tables!))
     (set! result '(values)))
 
   ; the pragmas CARE-OF-QUOTES-ON / CARE-OF-QUOTES-OFF : the last one read acts on the rest of the session (Scheme+/care-of-quotes)
@@ -383,7 +426,7 @@
     (when (verify-if-declaration-for-parser-then-store-it result) ; postfix operators , procedures , data
       (display "Parser : main.rkt : Postfix operators list :") (display (get-postfix-lst)) (newline))
     
-    (write-char (integer->char 13)) ; put a Carriage Return
+    #;(write-char (integer->char 13)) ; put a Carriage Return ; now done by call-with-repl-output for the expeditor
     (pretty-print result
 		  (current-output-port)
 		  1))
