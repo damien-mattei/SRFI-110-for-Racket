@@ -50,6 +50,10 @@ It writes on the standard output the Racket code that the reader gives to the co
 The type annotation and inference system to improve speed to top is now available, see version 2.0 below.
 <br>
 
+**Changes of version 2.1:**
+
+The code read has an empty source location: without locations Racket gave to every identifier the location of the whole file, so the language server of VS Code (Magic Racket) underlined the whole file with a blue wave for each unused variable.
+
 **Changes of version 2.0:**
 
 Support for DrRacket literal hash table, examples: `#hash((a . 1) (b . 2))` , `#hasheq((a . 1) (b . 2))` ,  `#hasheqv((a . 1) (b . 2))` .
