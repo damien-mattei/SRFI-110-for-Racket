@@ -5,7 +5,7 @@
 (define compile-omit-paths '("src" "deprecated" "compiled" "bootstrapping"))
 (define test-omit-paths '("src" "deprecated" "compiled" "bootstrapping"))
 (define pkg-desc "SRFI-110 Curly Infix,Neoteric and Sweet expressions for Racket and R6RS (autodetection)")
-(define version "2.0")
+(define version "2.1")
 (define pkg-authors '(mattei))
 (define scribblings '(("scribblings/SRFI-110.scrbl" () (parsing-library))))
 (define build-deps '("scribble-lib" "racket-doc" "scribble-doc"))

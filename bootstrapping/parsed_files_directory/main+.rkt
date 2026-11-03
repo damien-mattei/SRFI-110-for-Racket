@@ -1,5 +1,7 @@
 (module SRFI-110 racket/base
-  (provide (rename-out (literal-read read) (literal-read-syntax read-syntax)))
+  (provide (rename-out
+            (literal-read read)
+            (literal-read-syntax-empty-location read-syntax)))
   (require SRFI-110/kernel
            setup/getinfo
            racket/pretty
@@ -57,6 +59,8 @@
              (regexp-try-match (pregexp "^;[^\n]*\n") in))
         (loop))))
   (define (literal-read in) (syntax->datum (literal-read-syntax #f in)))
+  (define (literal-read-syntax-empty-location src in)
+    (datum->syntax #f (literal-read-syntax src in) (vector src 1 0 1 0)))
   (define (literal-read-syntax src in)
     (:= flag-r6rs #f)
     (set-annot-flag! #f)
