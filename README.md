@@ -50,6 +50,10 @@ It writes on the standard output the Racket code that the reader gives to the co
 The type annotation and inference system to improve speed to top is now available, see version 2.0 below.
 <br>
 
+**Changes of version 3.1:**
+
+With SRFI 105 version 17.1 and Scheme+ version 20.1: the types ℤ* and ℕ*, and a type of an exponentiation that is always true.
+
 **Changes of version 3.0:**
 
 Source locations (with Scheme+ version 20.0): each form and each identifier read, in curly infix, neoteric and sweet expressions, keep the location of their text in the source file, through the infix conversion and the type annotation.
