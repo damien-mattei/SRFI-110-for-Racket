@@ -1,13 +1,18 @@
 (module SRFI-110 racket/base
   (provide (rename-out
             (literal-read read)
-            (literal-read-syntax-empty-location read-syntax)))
+            (literal-read-syntax-located read-syntax)))
   (require SRFI-110/kernel
            setup/getinfo
            racket/pretty
            SRFI-105/annot+
            srfi/69
            Scheme+/operators-list
+           (only-in
+            Scheme+/source-locations
+            reset-source-locations!
+            datum->located-syntax
+            call-with-located-errors)
            Scheme+
            Scheme+/type
            (only-in
@@ -59,8 +64,9 @@
              (regexp-try-match (pregexp "^;[^\n]*\n") in))
         (loop))))
   (define (literal-read in) (syntax->datum (literal-read-syntax #f in)))
-  (define (literal-read-syntax-empty-location src in)
-    (datum->syntax #f (literal-read-syntax src in) (vector src 1 0 1 0)))
+  (define (literal-read-syntax-located src in)
+    (reset-source-locations! src)
+    (datum->located-syntax (literal-read-syntax src in) src))
   (define (literal-read-syntax src in)
     (:= flag-r6rs #f)
     (set-annot-flag! #f)
@@ -166,12 +172,14 @@
            annot-ht-lst))
         (if (and (get-annot-on-read) (not (null? result)))
           (let ((parsed-annotated-module
-                 (annot
-                  result-modul
-                  ovrld-ht
-                  ovrld-ht-n-arity
-                  ovrld-ht-proc
-                  annot-ht-lst)))
+                 (call-with-located-errors
+                  (lambda ()
+                    (annot
+                     result-modul
+                     ovrld-ht
+                     ovrld-ht-n-arity
+                     ovrld-ht-proc
+                     annot-ht-lst)))))
             (newline)
             (newline)
             (when annot-debug
@@ -270,7 +278,7 @@
   (define (literal-read-syntax-for-repl src in)
     (call-with-repl-output in (lambda () (read-syntax-for-repl src in))))
   (define (read-syntax-for-repl src in)
-    (define result (mutable-read in))
+    (define result (mutable-read in src))
     (when (process-strict-pragma result) (set! result '(values)))
     (when (process-annotation-pragma result)
       (when (get-annot-flag) (ensure-annotation-tables!))

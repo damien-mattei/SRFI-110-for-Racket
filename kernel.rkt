@@ -216,6 +216,7 @@
 	     (only-in Scheme+/superscript superscript-only?) ; the superscripts (exponents) are not parsed by the simple infix shortcut
 	     Scheme+/type) ; brings ANNOTATION-ON and ANNOTATION-OFF
     (require syntax/readerr)
+    (require (only-in Scheme+/source-locations location-start location-from record-form! record-atom! reset-read-atoms! relink-read-atoms!))
     (require ffi/vector) ; for list->u8vector
     (require rnrs/mutable-pairs-6)
     (require compatibility/mlist)
@@ -230,6 +231,7 @@
 
 (define global-port '())
 (define source "unknown")
+(define global-source #f) ; the source given by Racket to the reader (a path , or something else in an editor)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -872,7 +874,12 @@
                  (not (null? (cdr args)))
                  (path? (cadr args)))
              (set! source (some-system-path->string (cadr args)))) ; source filename
-           (f real-port)))))
+	   (when (and (not (null? args))
+		      (not (null? (cdr args))))
+	     (set! global-source (cadr args))) ; the source given by Racket , as it is , for the location of the read errors
+           #;(f real-port)
+	   (reset-read-atoms!)
+	   (relink-read-atoms! (f real-port))))))
     (else 
      (define (make-read f)
        (lambda args
@@ -888,8 +895,18 @@
       (read port))
     ; R5RS doesn't have any method of extracting
     ; or attaching source location information.
-    (define (get-sourceinfo _) #f)
-    (define (attach-sourceinfo _ x) x)
+    (cond-expand
+     (racket ; the locations are kept beside the code (see Scheme+/source-locations)
+      (define (get-sourceinfo port) (location-start port))
+      (define (attach-sourceinfo pos obj)
+	(let ((location (location-from pos global-port)))
+	  (if (pair? obj)
+	      (record-form! obj location)
+	      (record-atom! obj location))
+	  obj)))
+     (else
+      (define (get-sourceinfo _) #f)
+      (define (attach-sourceinfo _ x) x)))
 
     ; R5RS has no hash extensions
     (define (parse-hash no-indent-read char fake-port) #f)
@@ -1323,11 +1340,20 @@
   
   (: read-error (* -> . *))
   (define (read-error message)
+    (cond-expand ; a read error of Racket : with its location , DrRacket and the language servers can show it
+     (racket
+      (let-values (((line col pos) (port-next-location global-port)))
+	((if (regexp-match? #rx"(?i:eof)" message) raise-read-eof-error raise-read-error)
+	 (string-append "Error: " message)
+	 (or global-source source)
+	 line col pos (and pos 1))))
+     (else ))
+    
     (display "Error: " (current-error-port))
     (display message (current-error-port))
     (newline (current-error-port))
     
-    (cond-expand ; added 2025
+    #;(cond-expand ; added 2025
      (racket
       (define-values (line col pos) (port-next-location global-port))
       (display " in source file " (current-error-port))
@@ -2572,7 +2598,8 @@
   ; This recurses, to handle formats like f(x)(y).
   (: neoteric-process-tail (input-port * -> *))
   (define (neoteric-process-tail port prefix)
-      (let* ((pos (get-sourceinfo port))
+      (let* (#;(pos (get-sourceinfo port))
+	     (pos #f) ; here the port is after the prefix : neoteric-read-real gives the location of the whole form
              (c   (my-peek-char port)))
         (cond
           ((eof-object? c) prefix)
@@ -2642,7 +2669,8 @@
            (else (underlying-read neoteric-read-nocomment port)))))
       (if (eof-object? result)
           result
-          (neoteric-process-tail port result))))
+          #;(neoteric-process-tail port result)
+	  (attach-sourceinfo pos (neoteric-process-tail port result)))))
 
   (: neoteric-read-nocomment (input-port -> *))
   (define (neoteric-read-nocomment port)

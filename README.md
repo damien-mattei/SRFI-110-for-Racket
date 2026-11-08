@@ -50,6 +50,12 @@ It writes on the standard output the Racket code that the reader gives to the co
 The type annotation and inference system to improve speed to top is now available, see version 2.0 below.
 <br>
 
+**Changes of version 3.0:**
+
+Source locations (with Scheme+ version 20.0): each form and each identifier read, in curly infix, neoteric and sweet expressions, keep the location of their text in the source file, through the infix conversion and the type annotation.
+
+A read error is now a real read error of Racket, with its location: the reading stops at the error. Before, the error was displayed and the reading continued after it, so a wrong file could be accepted.
+
 **Changes of version 2.1:**
 
 The code read has an empty source location: without locations Racket gave to every identifier the location of the whole file, so the language server of VS Code (Magic Racket) underlined the whole file with a blue wave for each unused variable.
