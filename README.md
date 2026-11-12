@@ -50,6 +50,10 @@ It writes on the standard output the Racket code that the reader gives to the co
 The type annotation and inference system to improve speed to top is now available, see version 2.0 below.
 <br>
 
+**Changes of version 3.2:**
+
+The message displayed before the annotated code (the debugging output of the type annotation) is now `Annotated code :`.
+
 **Changes of version 3.1:**
 
 With SRFI 105 version 17.1 and Scheme+ version 20.1: the types ℤ* and ℕ*, and a type of an exponentiation that is always true.
