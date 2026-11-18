@@ -50,6 +50,10 @@ It writes on the standard output the Racket code that the reader gives to the co
 The type annotation and inference system to improve speed to top is now available, see version 2.0 below.
 <br>
 
+**Changes of version 3.3:**
+
+A parsing directive (```#!curly-infix```, ```#!sweet```, ```#!no-sweet```) written just after a pragma of the strict mode (```BEGIN-STRICT-SRFI-105-REGION``` or ```END-STRICT-SRFI-105-REGION```) in sweet-expressions now changes the reading of the file. Before, the reader read the datum after the pragma itself and the directive was ignored: after ```END-STRICT-SRFI-105-REGION``` and ```#!curly-infix```, ```(define a 1)(define b 2)``` was read in sweet-expressions as the call ```((define a 1) define b 2)```.
+
 **Changes of version 3.2:**
 
 The message displayed before the annotated code (the debugging output of the type annotation) is now `Annotated code :`.

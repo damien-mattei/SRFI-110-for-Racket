@@ -304,8 +304,9 @@
 (define (reset-srfi-strict!)
   (set! srfi-strict srfi-strict-at-start))
 
-;; a pragma BEGIN-STRICT-SRFI-105-REGION / END-STRICT-SRFI-105-REGION read at the REPL , return #t when datum is one
-;; of the pragmas (inside a list they are processed by the reader , at the top level of a file by sweet-read)
+;; a pragma BEGIN-STRICT-SRFI-105-REGION / END-STRICT-SRFI-105-REGION read at the REPL or at the top level of a file ,
+;; return #t when datum is one of the pragmas (inside a list they are processed by the reader ; at the top level of a
+;; file in sweet-expressions sweet-read has already changed the mode , the pragma is then only removed)
 (define (process-strict-pragma datum)
   (cond ((eq? datum 'BEGIN-STRICT-SRFI-105-REGION)
 	 (set! srfi-strict #t)
@@ -3783,7 +3784,7 @@
   (define curly-infix-read (make-read curly-infix-read-nocomment))
   (define neoteric-read (make-read neoteric-read-nocomment))
   ; the pragmas of the strict SRFI 105 mode written alone at the level of the file (outside a module form) are removed
-  (define (t-expr-catch-pragmas port)
+  #;(define (t-expr-catch-pragmas port)
     (let ((datum (t-expr-catch port)))
       (cond ((eq? datum 'BEGIN-STRICT-SRFI-105-REGION)
 	     (set! srfi-strict #t)
@@ -3792,6 +3793,19 @@
 	     (set! srfi-strict #f)
 	     (t-expr-catch-pragmas port))
 	    (else datum))))
+
+  ; a pragma of the strict SRFI 105 mode written alone at the level of the file (outside a module form) changes the
+  ; mode and is returned : the reader of the file (main.rkt , curly-infix2prefix4racket.rkt) removes it with
+  ; process-strict-pragma. The next datum is not read here : it is read by read-with-directives , that processes a
+  ; parsing directive written just after the pragma (#!curly-infix , #!sweet , #!no-sweet) ; before , the directive was
+  ; read here as a comment and ignored.
+  (define (t-expr-catch-pragmas port)
+    (let ((datum (t-expr-catch port)))
+      (cond ((eq? datum 'BEGIN-STRICT-SRFI-105-REGION)
+	     (set! srfi-strict #t))
+	    ((eq? datum 'END-STRICT-SRFI-105-REGION)
+	     (set! srfi-strict #f)))
+      datum))
 
   #;(define sweet-read (make-read t-expr-catch))
   (define sweet-read (make-read t-expr-catch-pragmas))
